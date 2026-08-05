@@ -327,7 +327,9 @@ std::string generateSslCertificate(const std::string& cn)
             addExt(x509, NID_authority_key_identifier, ("keyid"));
             addExt(x509, NID_key_usage, ("digitalSignature, keyEncipherment"));
             addExt(x509, NID_ext_key_usage, ("serverAuth"));
+#ifndef __ZEPHYR__
             addExt(x509, NID_netscape_comment, (x509Comment));
+#endif
 
             // Sign the certificate with our private key
             X509_sign(x509, pPrivKey, EVP_sha256());

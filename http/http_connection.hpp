@@ -4,7 +4,9 @@
 #include "async_resp.hpp"
 #include "authentication.hpp"
 #include "complete_response_fields.hpp"
+#ifndef __ZEPHYR__
 #include "http2_connection.hpp"
+#endif /* __ZEPHYR__ */
 #include "http_body.hpp"
 #include "http_response.hpp"
 #include "http_utility.hpp"
@@ -199,6 +201,7 @@ class Connection :
 
     void afterSslHandshake()
     {
+#ifndef __ZEPHYR__
         // If http2 is enabled, negotiate the protocol
         if constexpr (BMCWEB_EXPERIMENTAL_HTTP2)
         {
@@ -221,7 +224,7 @@ class Connection :
                 }
             }
         }
-
+#endif /* __ZEPHYR__ */
         doReadHeaders();
     }
 

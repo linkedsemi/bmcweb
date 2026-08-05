@@ -30,6 +30,15 @@
 #include <string>
 #include <string_view>
 
+#ifdef __ZEPHYR__
+#include <dbus_broker.h>
+#include <zephyr/kernel.h>
+#include <printk_thread.h>
+
+extern struct k_sem bmcweb_ready_sem;
+
+#endif  /* __ZEPHYR__ */
+
 static void setLogLevel(const std::string& logLevel)
 {
     const std::basic_string_view<char>* iter =
@@ -43,7 +52,15 @@ static void setLogLevel(const std::string& logLevel)
     BMCWEB_LOG_INFO("Requested log-level change to: {}", logLevel);
 }
 
-int run()
+int runWebserver()
+{
+    printk_thread(">>> bmcweb_main");
+    k_sem_give(&bmcweb_ready_sem);
+
+    return 0;
+}
+
+int runWebservertest()
 {
     auto io = std::make_shared<boost::asio::io_context>();
     App app(io);

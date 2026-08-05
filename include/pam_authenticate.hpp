@@ -1,11 +1,42 @@
 #pragma once
 
+#ifndef __ZEPHYR__
 #include <security/pam_appl.h>
+#endif /* __ZEPHYR__ */
 
 #include <cstring>
 #include <memory>
 #include <span>
 #include <string_view>
+
+#ifdef __ZEPHYR__
+  #ifndef PAM_SUCCESS
+  #define PAM_SUCCESS 0
+  #endif
+  #ifndef PAM_NEW_AUTHTOK_REQD
+  #define PAM_NEW_AUTHTOK_REQD 12
+  #endif
+  #ifndef PAM_USER_UNKNOWN
+  #define PAM_USER_UNKNOWN 10
+  #endif
+  #ifndef PAM_AUTHTOK_ERR
+  #define PAM_AUTHTOK_ERR 17
+  #endif
+
+inline int pamAuthenticateUser(std::string_view /*username*/,
+                               std::string_view /*password*/,
+                               std::optional<std::string> /*token*/)
+{
+    return PAM_SUCCESS;
+}
+
+inline int pamUpdatePassword(const std::string& /*username*/,
+                             const std::string& /*password*/)
+{
+    return PAM_SUCCESS;
+}
+
+#else
 
 struct PasswordData
 {
@@ -195,3 +226,4 @@ inline int pamUpdatePassword(const std::string& username,
 
     return pam_end(localAuthHandle, PAM_SUCCESS);
 }
+#endif /* __ZEPHYR__ */

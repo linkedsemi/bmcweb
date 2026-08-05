@@ -105,6 +105,25 @@ inline int onPropertyUpdate(sd_bus_message* m, void* /* userdata */,
         "Current HTTPs Certificate Subject CN: {}, New HostName: {}, isSelfSigned: {}",
         cnValue, *hostname, isSelfSigned);
 
+#ifdef __ZEPHYR__
+    if (isSelfSigned == 1 && cnValue != *hostname)
+    {
+        BMCWEB_LOG_INFO(
+            "Ready to generate new HTTPs certificate with subject cn: {}",
+            *hostname);
+
+        std::string certData = ensuressl::generateSslCertificate(*hostname);
+        if (certData.empty())
+        {
+            BMCWEB_LOG_ERROR("Failed to generate cert");
+            X509_free(cert);
+            return 0;
+        }
+        ensuressl::writeCertificateToFile("/tmp/hostname_cert.tmp", certData);
+
+        installCertificate("/tmp/hostname_cert.tmp");
+    }
+#else
     ASN1_IA5STRING* asn1 = static_cast<ASN1_IA5STRING*>(
         X509_get_ext_d2i(cert, NID_netscape_comment, nullptr, nullptr));
     if (asn1 != nullptr)
@@ -134,6 +153,7 @@ inline int onPropertyUpdate(sd_bus_message* m, void* /* userdata */,
         }
         ASN1_STRING_free(asn1);
     }
+#endif /* __ZEPHYR__ */
     X509_free(cert);
     return 0;
 }

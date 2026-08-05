@@ -12,8 +12,14 @@
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <boost/beast/core/flat_static_buffer.hpp>
 #include <boost/container/flat_map.hpp>
+#ifndef __ZEPHYR__
 #include <boost/process/v2/process.hpp>
 #include <boost/process/v2/stdio.hpp>
+#else
+#include <boost/process/async_pipe.hpp>
+#include <boost/process/child.hpp>
+#include <boost/process/io.hpp>
+#endif  /* __ZEPHYR__ */
 #include <sdbusplus/asio/property.hpp>
 
 #include <csignal>
@@ -36,11 +42,17 @@ static constexpr auto nbdBufferSize = (128 * 1024 + 16) * 4;
 class Handler : public std::enable_shared_from_this<Handler>
 {
   public:
+#ifndef __ZEPHYR__
     Handler(const std::string& media, boost::asio::io_context& ios) :
         pipeOut(ios), pipeIn(ios),
         proxy(ios, "/usr/bin/nbd-proxy", {media},
               boost::process::v2::process_stdio{
                   .in = pipeIn, .out = pipeOut, .err = nullptr}),
+#else
+    Handler(const std::string& mediaIn, boost::asio::io_context& ios) :
+        pipeOut(ios), pipeIn(ios), media(mediaIn),
+#endif  /* __ZEPHYR__ */
+
         outputBuffer(new boost::beast::flat_static_buffer<nbdBufferSize>),
         inputBuffer(new boost::beast::flat_static_buffer<nbdBufferSize>)
     {}
@@ -69,6 +81,11 @@ class Handler : public std::enable_shared_from_this<Handler>
     void connect()
     {
         std::error_code ec;
+#ifdef __ZEPHYR__
+        proxy = boost::process::child("/usr/sbin/nbd-proxy", media,
+                                      boost::process::std_out > pipeOut,
+                                      boost::process::std_in < pipeIn, ec);
+#endif  /* __ZEPHYR__ */
         if (ec)
         {
             BMCWEB_LOG_ERROR("Couldn't connect to nbd-proxy: {}", ec.message());
@@ -158,9 +175,16 @@ class Handler : public std::enable_shared_from_this<Handler>
             });
     }
 
+#ifndef __ZEPHYR__
     boost::asio::readable_pipe pipeOut;
     boost::asio::writable_pipe pipeIn;
     boost::process::v2::process proxy;
+#else
+    boost::process::async_pipe pipeOut;
+    boost::process::async_pipe pipeIn;
+    boost::process::child proxy;
+    std::string media;
+#endif /* __ZEPHYR__ */
     bool doingWrite{false};
 
     std::unique_ptr<boost::beast::flat_static_buffer<nbdBufferSize>>
