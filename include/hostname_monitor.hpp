@@ -67,7 +67,11 @@ inline int onPropertyUpdate(sd_bus_message* m, void* /* userdata */,
     }
 
     BMCWEB_LOG_DEBUG("Read hostname from signal: {}", *hostname);
+#ifdef __ZEPHYR__
+    const std::string certFile = CONFIG_FS_ROOT_OVERLAY "/etc/ssl/certs/https/server.pem";
+#else
     const std::string certFile = "/etc/ssl/certs/https/server.pem";
+#endif /* __ZEPHYR__ */
 
     X509* cert = ensuressl::loadCert(certFile);
     if (cert == nullptr)
@@ -112,15 +116,8 @@ inline int onPropertyUpdate(sd_bus_message* m, void* /* userdata */,
             "Ready to generate new HTTPs certificate with subject cn: {}",
             *hostname);
 
-        std::string certData = ensuressl::generateSslCertificate(*hostname);
-        if (certData.empty())
-        {
-            BMCWEB_LOG_ERROR("Failed to generate cert");
-            X509_free(cert);
-            return 0;
-        }
-        ensuressl::writeCertificateToFile("/tmp/hostname_cert.tmp", certData);
-
+        ensuressl::generateSslCertificate("/tmp/hostname_cert.tmp",
+                                          *hostname);
         installCertificate("/tmp/hostname_cert.tmp");
     }
 #else

@@ -13,13 +13,20 @@
 
 #include <bit>
 #include <cstddef>
+#ifdef __ZEPHYR__
+// memcmp() is used by the local nghttp2_select_alpn() replacement.
+#include <cstring>
+#endif /* __ZEPHYR__ */
 #include <limits>
 #include <system_error>
 #include <utility>
 
 extern "C"
 {
+#ifndef __ZEPHYR__
 #include <nghttp2/nghttp2.h>
+#include <openssl/types.h>
+#endif /* __ZEPHYR__ */
 #include <openssl/asn1.h>
 #include <openssl/bio.h>
 #include <openssl/ec.h>
@@ -27,13 +34,74 @@ extern "C"
 #include <openssl/evp.h>
 #include <openssl/obj_mac.h>
 #include <openssl/pem.h>
+#ifdef __ZEPHYR__
+// RSA_check_key()/EVP_PKEY_get1_RSA() are only used in the Zephyr
+// verification path (wolfSSL's OpenSSL compat layer).
+#include <openssl/rsa.h>
+#endif /* __ZEPHYR__ */
 #include <openssl/ssl.h>
 #include <openssl/tls1.h>
-#include <openssl/types.h>
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
 #include <openssl/x509v3.h>
 }
+
+#ifdef __ZEPHYR__
+// nghttp2 is not available in the Zephyr build.  Provide a local
+// nghttp2_select_alpn equivalent that mirrors nghttp2's ALPN helper
+// (prefers h2, then http/1.1).  ALPN protocol ids are length-prefixed:
+// <len><protocol>, e.g. the "h2" id is stored as {0x02, 'h', '2'}.
+static int zephyrSelectAlpn(const unsigned char** out, unsigned char* outlen,
+                            const unsigned char* in, unsigned int inlen,
+                            const char* key, unsigned int keylen)
+{
+    unsigned int i = 0;
+    while (i + keylen <= inlen)
+    {
+        const unsigned int entryLen =
+            static_cast<unsigned int>(in[i]);
+
+        // Reject malformed/truncated ALPN entries instead of stepping
+        // past the end of the buffer.
+        if (entryLen > inlen - i - 1)
+        {
+            return -1;
+        }
+
+        if (std::memcmp(&in[i], key, keylen) == 0)
+        {
+            *out = &in[i + 1];
+            *outlen = in[i];
+            return 0;
+        }
+        i += 1 + entryLen;
+    }
+    return -1;
+}
+
+static int nghttp2_select_alpn(const unsigned char** out,
+                               unsigned char* outlen,
+                               const unsigned char* in, unsigned int inlen)
+{
+    // Length-prefixed ALPN ids: {"\x02h2"} == "h2",
+    // {"\x08http/1.1"} == "http/1.1".  sizeof()-1 keeps the embedded
+    // length prefix and keylen in sync.
+    static constexpr char h2Alpn[] = "\x02h2";
+    static constexpr char http11Alpn[] = "\x08http/1.1";
+
+    if (zephyrSelectAlpn(out, outlen, in, inlen, h2Alpn,
+                         sizeof(h2Alpn) - 1) == 0)
+    {
+        return 1;
+    }
+    if (zephyrSelectAlpn(out, outlen, in, inlen, http11Alpn,
+                         sizeof(http11Alpn) - 1) == 0)
+    {
+        return 0;
+    }
+    return -1;
+}
+#endif /* __ZEPHYR__ */
 
 #include <boost/asio/ssl/context.hpp>
 #include <boost/system/error_code.hpp>
@@ -131,6 +199,89 @@ bool validateCertificate(X509* const cert)
     return false;
 }
 
+#ifdef __ZEPHYR__
+bool verifyOpensslKeyCert(const std::string& filepath)
+{
+    bool privateKeyValid = false;
+    bool certValid = false;
+
+    BMCWEB_LOG_INFO("Checking certs in file {}", filepath);
+
+    /* Use wolfSSL's XFILE abstraction: stdio is not usable on the Zephyr
+     * littlefs filesystem, and a memory BIO would fail on the two-block
+     * PEM file. */
+    XFILE file = XFOPEN(filepath.c_str(), "r");
+    if (file != nullptr)
+    {
+        EVP_PKEY* pkey = PEM_read_PrivateKey(file, nullptr, nullptr, nullptr);
+        if (pkey != nullptr)
+        {
+            /* wolfSSL's OpenSSL compat reports < 3.0; validate with the
+             * legacy RSA/EC helpers. */
+            RSA* rsa = EVP_PKEY_get1_RSA(pkey);
+            if (rsa != nullptr)
+            {
+                if (RSA_check_key(rsa) == 1)
+                {
+                    privateKeyValid = true;
+                }
+                else
+                {
+                    BMCWEB_LOG_ERROR("Key not valid error number {}",
+                                     ERR_get_error());
+                }
+                RSA_free(rsa);
+            }
+            else
+            {
+                EC_KEY* ec = EVP_PKEY_get1_EC_KEY(pkey);
+                if (ec != nullptr)
+                {
+                    if (EC_KEY_check_key(ec) == 1)
+                    {
+                        privateKeyValid = true;
+                    }
+                    else
+                    {
+                        BMCWEB_LOG_ERROR("Key not valid error number {}",
+                                         ERR_get_error());
+                    }
+                    EC_KEY_free(ec);
+                }
+            }
+
+            if (privateKeyValid)
+            {
+                /* The PEM file may carry the certificate before or after the
+                 * key; rewind so the X509 parse finds the certificate block. */
+                XFSEEK(file, 0, XSEEK_SET);
+
+                X509* x509 = PEM_read_X509(file, nullptr, nullptr, nullptr);
+                if (x509 == nullptr)
+                {
+                    BMCWEB_LOG_ERROR("error getting x509 cert {}",
+                                     ERR_get_error());
+                }
+                else
+                {
+                    certValid = validateCertificate(x509);
+                    X509_free(x509);
+                }
+            }
+
+            EVP_PKEY_free(pkey);
+        }
+
+        XFCLOSE(file);
+    }
+    else
+    {
+        BMCWEB_LOG_DEBUG("verifyOpensslKeyCert open fail: {}", filepath);
+    }
+
+    return certValid;
+}
+#else
 std::string verifyOpensslKeyCert(const std::string& filepath)
 {
     bool privateKeyValid = false;
@@ -202,6 +353,7 @@ std::string verifyOpensslKeyCert(const std::string& filepath)
     }
     return fileContents;
 }
+#endif /* __ZEPHYR__ */
 
 X509* loadCert(const std::string& filePath)
 {
@@ -253,6 +405,110 @@ int addExt(X509* cert, int nid, const char* value)
     return 0;
 }
 
+#ifdef __ZEPHYR__
+void generateSslCertificate(const std::string& filepath,
+                            const std::string& cn)
+{
+    BMCWEB_LOG_INFO("Generating new keys");
+
+    BMCWEB_LOG_INFO("Generating EC key");
+    EVP_PKEY* pPrivKey = createEcKey();
+    if (pPrivKey != nullptr)
+    {
+        BMCWEB_LOG_INFO("Generating x509 Certificates");
+        // Use this code to directly generate a certificate
+        X509* x509 = X509_new();
+        if (x509 != nullptr)
+        {
+            // get a random number from the RNG for the certificate serial
+            // number If this is not random, regenerating certs throws browser
+            // errors
+            bmcweb::OpenSSLGenerator gen;
+            std::uniform_int_distribution<int> dis(
+                1, std::numeric_limits<int>::max());
+            int serial = dis(gen);
+
+            ASN1_INTEGER_set(X509_get_serialNumber(x509), serial);
+
+            /* Zephyr has no real RTC: wolfSSL's time() returns boot uptime,
+             * so a time-relative validity window breaks across reboots
+             * ("certificate not yet valid"). Use a fixed wide window. */
+            ASN1_TIME_set_string(X509_get_notBefore(x509),
+                                 "700101000000Z");
+            ASN1_TIME_set_string(X509_get_notAfter(x509),
+                                 "791231235959Z");
+
+            // set the public key to the key we just generated
+            X509_set_pubkey(x509, pPrivKey);
+
+            // get the subject name
+            X509_NAME* name = X509_get_subject_name(x509);
+
+            using x509String = const unsigned char;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+            x509String* country = reinterpret_cast<x509String*>("US");
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+            x509String* company = reinterpret_cast<x509String*>("OpenBMC");
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+            x509String* cnStr = reinterpret_cast<x509String*>(cn.c_str());
+
+            X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC, country, -1, -1,
+                                       0);
+            X509_NAME_add_entry_by_txt(name, "O", MBSTRING_ASC, company, -1, -1,
+                                       0);
+            X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, cnStr, -1, -1,
+                                       0);
+            // set the CSR options
+            X509_set_issuer_name(x509, name);
+
+            X509_set_version(x509, 2);
+            addExt(x509, NID_basic_constraints, ("critical,CA:TRUE"));
+            addExt(x509, NID_subject_alt_name, cn.c_str());
+            addExt(x509, NID_subject_key_identifier, ("hash"));
+            addExt(x509, NID_authority_key_identifier, ("keyid"));
+            addExt(x509, NID_key_usage, ("digitalSignature, keyEncipherment"));
+            addExt(x509, NID_ext_key_usage, ("serverAuth"));
+
+            // Sign the certificate with our private key
+            X509_sign(x509, pPrivKey, EVP_sha256());
+
+            /* Write through wolfSSL's XFILE abstraction: stdio is not usable
+             * on the Zephyr littlefs filesystem. */
+            XFILE pFile = XFOPEN(filepath.c_str(), "w");
+            if (pFile != nullptr)
+            {
+                BIO* bio = BIO_new_fp(pFile, BIO_NOCLOSE);
+                if (bio != nullptr)
+                {
+                    int pkeyRet = PEM_write_bio_PrivateKey(
+                        bio, pPrivKey, nullptr, nullptr, 0, nullptr, nullptr);
+                    if (pkeyRet <= 0)
+                    {
+                        BMCWEB_LOG_ERROR(
+                            "Failed to write pkey with code {}.  Ignoring.",
+                            pkeyRet);
+                    }
+                    BIO_flush(bio);
+                    BIO_free(bio);
+                }
+                PEM_write_X509(pFile, x509);
+                XFCLOSE(pFile);
+            }
+            else
+            {
+                BMCWEB_LOG_DEBUG("generateSslCertificate open fail: {}",
+                                 filepath);
+            }
+            X509_free(x509);
+        }
+
+        EVP_PKEY_free(pPrivKey);
+        pPrivKey = nullptr;
+    }
+
+    // cleanup_openssl();
+}
+#else
 // Writes a certificate to a path, ignoring errors
 void writeCertificateToFile(const std::string& filepath,
                             const std::string& certificate)
@@ -371,7 +627,45 @@ std::string generateSslCertificate(const std::string& cn)
     // cleanup_openssl();
     return buffer;
 }
+#endif /* __ZEPHYR__ */
 
+#ifdef __ZEPHYR__
+EVP_PKEY* createEcKey()
+{
+    EVP_PKEY* pKey = nullptr;
+
+    /* wolfSSL's OpenSSL compat reports < 3.0; use the legacy EC_KEY API,
+     * which wolfSSL supports natively. */
+    int eccgrp = 0;
+    eccgrp = OBJ_txt2nid("secp384r1");
+
+    EC_KEY* myecc = EC_KEY_new_by_curve_name(eccgrp);
+    if (myecc != nullptr)
+    {
+        EC_KEY_set_asn1_flag(myecc, OPENSSL_EC_NAMED_CURVE);
+        EC_KEY_generate_key(myecc);
+        pKey = EVP_PKEY_new();
+        if (pKey != nullptr)
+        {
+            if (EVP_PKEY_assign(pKey, EVP_PKEY_EC, myecc) != 0)
+            {
+                /* pKey owns myecc from now */
+                if (EC_KEY_check_key(myecc) <= 0)
+                {
+                    BMCWEB_LOG_ERROR("EC_check_key failed");
+                }
+            }
+            else
+            {
+                EVP_PKEY_free(pKey);
+                pKey = nullptr;
+            }
+        }
+    }
+
+    return pKey;
+}
+#else
 EVP_PKEY* createEcKey()
 {
     EVP_PKEY* pKey = nullptr;
@@ -415,7 +709,20 @@ EVP_PKEY* createEcKey()
 
     return pKey;
 }
+#endif /* __ZEPHYR__ */
 
+#ifdef __ZEPHYR__
+void ensureOpensslKeyPresentAndValid(const std::string& filepath)
+{
+    bool pemFileValid = verifyOpensslKeyCert(filepath);
+
+    if (!pemFileValid)
+    {
+        BMCWEB_LOG_WARNING("Error in verifying signature, regenerating");
+        generateSslCertificate(filepath, "testhost");
+    }
+}
+#else
 std::string ensureOpensslKeyPresentAndValid(const std::string& filepath)
 {
     std::string cert = verifyOpensslKeyCert(filepath);
@@ -435,10 +742,21 @@ std::string ensureOpensslKeyPresentAndValid(const std::string& filepath)
     }
     return cert;
 }
+#endif /* __ZEPHYR__ */
 
 static std::string ensureCertificate()
 {
     namespace fs = std::filesystem;
+#ifdef __ZEPHYR__
+    // Zephyr mounts the filesystem below CONFIG_FS_ROOT_OVERLAY.
+    fs::path oldcertPath =
+        fs::path(CONFIG_FS_ROOT_OVERLAY "/home/root/server.pem");
+    std::error_code ec;
+    fs::remove(oldcertPath, ec);
+    // Ignore failure to remove;  File might not exist.
+
+    fs::path certPath = CONFIG_FS_ROOT_OVERLAY "/etc/ssl/certs/https/";
+#else
     // Cleanup older certificate file existing in the system
     fs::path oldcertPath = fs::path("/home/root/server.pem");
     std::error_code ec;
@@ -446,6 +764,7 @@ static std::string ensureCertificate()
     // Ignore failure to remove;  File might not exist.
 
     fs::path certPath = "/etc/ssl/certs/https/";
+#endif /* __ZEPHYR__ */
     // if path does not exist create the path so that
     // self signed certificate can be created in the
     // path
@@ -457,7 +776,12 @@ static std::string ensureCertificate()
     }
     BMCWEB_LOG_INFO("Building SSL Context file= {}", certFile.string());
     std::string sslPemFile(certFile);
+#ifdef __ZEPHYR__
+    ensuressl::ensureOpensslKeyPresentAndValid(sslPemFile);
+    return sslPemFile;
+#else
     return ensuressl::ensureOpensslKeyPresentAndValid(sslPemFile);
+#endif /* __ZEPHYR__ */
 }
 
 static int nextProtoCallback(SSL* /*unused*/, const unsigned char** data,
@@ -486,6 +810,56 @@ static int alpnSelectProtoCallback(
     return SSL_TLSEXT_ERR_OK;
 }
 
+#ifdef __ZEPHYR__
+static bool getSslContext(boost::asio::ssl::context& mSslContext,
+                          const std::string& certFile)
+{
+    mSslContext.set_options(
+        boost::asio::ssl::context::default_workarounds |
+        boost::asio::ssl::context::no_sslv2 |
+        boost::asio::ssl::context::no_sslv3 |
+        boost::asio::ssl::context::single_dh_use |
+        boost::asio::ssl::context::no_tlsv1 |
+        boost::asio::ssl::context::no_tlsv1_1);
+
+    BMCWEB_LOG_DEBUG("Using default TrustStore location: {}", trustStorePath);
+    mSslContext.add_verify_path(trustStorePath);
+
+    if (!certFile.empty())
+    {
+        boost::system::error_code ec;
+
+        mSslContext.use_certificate_file(certFile,
+                                         boost::asio::ssl::context::pem, ec);
+        if (ec)
+        {
+            return false;
+        }
+        mSslContext.use_private_key_file(certFile,
+                                         boost::asio::ssl::context::pem, ec);
+        if (ec)
+        {
+            BMCWEB_LOG_CRITICAL("Failed to open ssl pkey");
+            return false;
+        }
+    }
+
+    // Set up EC curves to auto (boost asio doesn't have a method for this)
+    // There is a pull request to add this.  Once this is included in an asio
+    // drop, use the right way
+    // http://stackoverflow.com/questions/18929049/boost-asio-with-ecdsa-certificate-issue
+    if (SSL_CTX_set_ecdh_auto(mSslContext.native_handle(), 1) != 1)
+    {}
+
+    if (SSL_CTX_set_cipher_list(mSslContext.native_handle(),
+                                mozillaIntermediate) != 1)
+    {
+        BMCWEB_LOG_ERROR("Error setting cipher list");
+        return false;
+    }
+    return true;
+}
+#else
 static bool getSslContext(boost::asio::ssl::context& mSslContext,
                           const std::string& sslPemFile)
 {
@@ -533,6 +907,7 @@ static bool getSslContext(boost::asio::ssl::context& mSslContext,
     }
     return true;
 }
+#endif /* __ZEPHYR__ */
 
 std::shared_ptr<boost::asio::ssl::context> getSslServerContext()
 {
@@ -585,10 +960,16 @@ std::optional<boost::asio::ssl::context>
 
     // NOTE, this path is temporary;  In the future it will need to change to
     // be set per subscription.  Do not rely on this.
+#ifdef __ZEPHYR__
+    fs::path certPath =
+        fs::path(CONFIG_FS_ROOT_OVERLAY "/etc/ssl/certs/https/client.pem");
+    bool pemFileValid = verifyOpensslKeyCert(certPath.string());
+    if (!pemFileValid || !getSslContext(sslCtx, certPath.string()))
+#else
     fs::path certPath = "/etc/ssl/certs/https/client.pem";
     std::string cert = verifyOpensslKeyCert(certPath);
-
     if (!getSslContext(sslCtx, cert))
+#endif /* __ZEPHYR__ */
     {
         return std::nullopt;
     }
