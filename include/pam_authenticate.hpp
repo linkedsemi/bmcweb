@@ -23,17 +23,27 @@
   #define PAM_AUTHTOK_ERR 17
   #endif
 
-inline int pamAuthenticateUser(std::string_view /*username*/,
-                               std::string_view /*password*/,
+/* Zephyr has no Linux PAM stack and phosphor-user-manager is not ported.
+ * Only the factory root account authenticates; everything else is rejected.
+ * Replace with the real user-manager backend once it is integrated. */
+inline int pamAuthenticateUser(std::string_view username,
+                               std::string_view password,
                                std::optional<std::string> /*token*/)
 {
-    return PAM_SUCCESS;
+    static constexpr std::string_view factoryUser = "root";
+    static constexpr std::string_view factoryPass = "0penBmc";
+    if (username == factoryUser && password == factoryPass)
+    {
+        return PAM_SUCCESS;
+    }
+    return PAM_USER_UNKNOWN;
 }
 
 inline int pamUpdatePassword(const std::string& /*username*/,
                              const std::string& /*password*/)
 {
-    return PAM_SUCCESS;
+    /* Password updates require the user manager; unsupported for now. */
+    return PAM_AUTHTOK_ERR;
 }
 
 #else
