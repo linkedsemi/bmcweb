@@ -107,6 +107,7 @@ class HttpBody::value_type
         {
             BMCWEB_LOG_WARNING("Failed to read file size on {}", path);
         }
+
 #ifndef __ZEPHYR__
         int fadvise = posix_fadvise(fileHandle.fileHandle.native_handle(), 0, 0,
                                     POSIX_FADV_SEQUENTIAL);
@@ -114,7 +115,7 @@ class HttpBody::value_type
         {
             BMCWEB_LOG_WARNING("Fasvise returned {} ignoring", fadvise);
         }
-#endif
+#endif /* __ZEPHYR__ */
         ec = {};
     }
 

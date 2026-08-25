@@ -1,6 +1,8 @@
 #pragma once
 
+#ifndef __ZEPHYR__
 #include <sys/inotify.h>
+#endif /* __ZEPHYR__ */
 
 #include <boost/asio/posix/stream_descriptor.hpp>
 

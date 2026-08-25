@@ -12,7 +12,13 @@ extern "C"
 #include <openssl/rand.h>
 }
 
+#ifdef __ZEPHYR__
+// The Zephyr boost tree only ships random_generator.hpp, which contains the
+// basic_random_generator template used below.
+#include <boost/uuid/random_generator.hpp>
+#else
 #include <boost/uuid/basic_random_generator.hpp>
+#endif /* __ZEPHYR__ */
 #include <boost/uuid/uuid_io.hpp>
 
 #include <array>

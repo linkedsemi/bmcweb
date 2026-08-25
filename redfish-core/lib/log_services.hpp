@@ -20,7 +20,9 @@ limitations under the License.
 #include "error_messages.hpp"
 #include "generated/enums/log_entry.hpp"
 #include "generated/enums/log_service.hpp"
+#ifndef __ZEPHYR__
 #include "gzfile.hpp"
+#endif  /* __ZEPHYR__ */
 #include "http_utility.hpp"
 #include "human_sort.hpp"
 #include "query.hpp"
@@ -41,7 +43,11 @@ limitations under the License.
 
 #include <boost/beast/http/verb.hpp>
 #include <boost/container/flat_map.hpp>
+#ifdef __ZEPHYR__
+#include <cerrno>
+#else
 #include <boost/system/linux_error.hpp>
+#endif /* __ZEPHYR__ */
 #include <boost/url/format.hpp>
 #include <sdbusplus/asio/property.hpp>
 #include <sdbusplus/unpack_properties.hpp>
@@ -1968,6 +1974,10 @@ inline bool getHostLoggerEntries(
     const std::vector<std::filesystem::path>& hostLoggerFiles, uint64_t skip,
     uint64_t top, std::vector<std::string>& logEntries, size_t& logCount)
 {
+#ifdef __ZEPHYR__
+    BMCWEB_LOG_ERROR("Zephyr platform skip compressed host log read (gzfile disabled)");
+    return false;
+#else
     GzFileReader logFile;
 
     // Go though all log files and expose host logs.
@@ -1990,6 +2000,7 @@ inline bool getHostLoggerEntries(
         }
     }
     return true;
+#endif  /* __ZEPHYR__ */
 }
 
 inline void handleBMCLogServicesCollectionGet(
@@ -2732,8 +2743,12 @@ inline void
             if (ec)
             {
                 BMCWEB_LOG_DEBUG("failed to get log ec: {}", ec.message());
+#ifdef __ZEPHYR__
+                if (ec.value() == EBADR)
+#else
                 if (ec.value() ==
                     boost::system::linux_error::bad_request_descriptor)
+#endif /* __ZEPHYR__ */
                 {
                     messages::resourceNotFound(asyncResp->res, "LogEntry",
                                                logID);

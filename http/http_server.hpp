@@ -35,7 +35,10 @@ class Server
            std::shared_ptr<boost::asio::ssl::context> adaptorCtxIn,
            std::shared_ptr<boost::asio::io_context> io) :
         ioService(std::move(io)), acceptor(std::move(acceptorIn)),
-        signals(*ioService, SIGINT, SIGTERM, SIGHUP), handler(handlerIn),
+#ifndef __ZEPHYR__
+        signals(*ioService, SIGINT, SIGTERM, SIGHUP),
+#endif
+        handler(handlerIn),
         adaptorCtx(std::move(adaptorCtxIn))
     {}
 
@@ -71,7 +74,9 @@ class Server
 
         BMCWEB_LOG_INFO("bmcweb server is running, local endpoint {}",
                         acceptor.local_endpoint().address().to_string());
+#ifndef __ZEPHYR__
         startAsyncWaitForSignal();
+#endif
         doAccept();
     }
 
@@ -88,6 +93,7 @@ class Server
         handler->ssl(std::move(sslContext));
     }
 
+#ifndef __ZEPHYR__
     void startAsyncWaitForSignal()
     {
         signals.async_wait(
@@ -111,6 +117,7 @@ class Server
                 }
             });
     }
+#endif
 
     void stop()
     {
@@ -178,7 +185,9 @@ class Server
     std::shared_ptr<boost::asio::io_context> ioService;
     std::function<std::string()> getCachedDateStr;
     boost::asio::ip::tcp::acceptor acceptor;
+#ifndef __ZEPHYR__
     boost::asio::signal_set signals;
+#endif
 
     std::string dateStr;
 

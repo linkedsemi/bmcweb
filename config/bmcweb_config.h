@@ -24,7 +24,7 @@ constexpr const bool        BMCWEB_BASIC_AUTH = true;
 constexpr const bool        BMCWEB_SESSION_AUTH = true;
 constexpr const bool        BMCWEB_XTOKEN_AUTH = true;
 constexpr const bool        BMCWEB_COOKIE_AUTH = true;
-constexpr const bool        BMCWEB_MUTUAL_TLS_AUTH = true;
+constexpr const bool        BMCWEB_MUTUAL_TLS_AUTH = false;
 
 constexpr std::string_view BMCWEB_MUTUAL_TLS_COMMON_NAME_PARSING_DEFAULT = "CommonName";
 
@@ -37,6 +37,7 @@ constexpr const bool BMCWEB_INSECURE_ENABLE_REDFISH_QUERY = false;
 constexpr const std::string_view BMCWEB_DNS_RESOLVER = "asio";//systemd-dbus
 
 constexpr const size_t BMCWEB_HTTP_BODY_LIMIT = 30;
+constexpr const size_t BMCWEB_HTTPS_PORT = 443;
 
 constexpr const bool BMCWEB_REDFISH_AGGREGATION = false;
 constexpr const bool BMCWEB_REDFISH_DBUS_LOG = false;
@@ -45,6 +46,7 @@ constexpr const bool BMCWEB_EXPERIMENTAL_REDFISH_DBUS_LOG_SUBSCRIPTION = false;
 constexpr const bool BMCWEB_VM_WEBSOCKET = false;
 constexpr const bool BMCWEB_VM_NBDPROXY = false;
 
+constexpr const bool BMCWEB_EXPERIMENTAL_HTTP2 = false;
 //webserver_run.cpp
 constexpr const bool BMCWEB_GOOGLE_API = false;
 constexpr const bool BMCWEB_IBM_MANAGEMENT_CONSOLE = false;

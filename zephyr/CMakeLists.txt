@@ -4,11 +4,26 @@ if(CONFIG_OPENBMC_BMCWEB)
         ${ZEPHYR_CURRENT_MODULE_DIR}/src/webserver_main.cpp
         ${ZEPHYR_CURRENT_MODULE_DIR}/src/webserver_cli.cpp
         ${ZEPHYR_CURRENT_MODULE_DIR}/src/webserver_run.cpp
-        # ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/error_messages.cpp
-        # ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/registries.cpp
-        # ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/utils/json_utils.cpp
-        # ${ZEPHYR_CURRENT_MODULE_DIR}/src/dbus_singleton.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/error_messages.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/registries.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/task_messages.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/heartbeat_messages.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/filter_expr_executor.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/filter_expr_printer.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/utils/json_utils.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/utils/time_utils.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/utils/dbus_utils.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/dbus_log_watcher.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/filesystem_log_watcher.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/subscription.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/src/redfish.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/src/dbus_singleton.cpp
         # ${ZEPHYR_CURRENT_MODULE_DIR}/src/bmcwebSetup.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/src/ossl_random.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/src/ssl_key_handler.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/src/json_html_serializer.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/http/mutual_tls.cpp
+        ${ZEPHYR_CURRENT_MODULE_DIR}/zephyr/dup_stub.c
     )
     zephyr_library_include_directories(${ZEPHYR_CURRENT_MODULE_DIR}/zephyr)
     zephyr_library_include_directories(${ZEPHYR_CURRENT_MODULE_DIR}/)
@@ -21,6 +36,7 @@ if(CONFIG_OPENBMC_BMCWEB)
     zephyr_library_include_directories(${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/include/utils)
     zephyr_library_include_directories(${ZEPHYR_CURRENT_MODULE_DIR}/redfish-core/include/registries)
 
+    zephyr_library_link_libraries(basu)
     zephyr_library_link_libraries(boost)
     zephyr_library_link_libraries(nlohmann_json)
     zephyr_library_link_libraries(zephyr-osal)
@@ -29,32 +45,23 @@ if(CONFIG_OPENBMC_BMCWEB)
     zephyr_library_link_libraries(CLI11)
     # zephyr_library_link_libraries(phosphor-user-manager)
 
-    # option(BMCWEB_ENABLE_LOGGING "Enable BMCWEB logging" ON)
-    # option(BMCWEB_ENABLE_DEBUG "Enable BMCWEB debug mode" ON)
-    # option(BMCWEB_ENABLE_BASIC_AUTHENTICATION "Enable basic authentication" ON)
-    # option(BMCWEB_ENABLE_COOKIE_AUTHENTICATION "Enable cookie authentication" ON)
-    # option(BMCWEB_ENABLE_HOST_SERIAL_WEBSOCKET "Enable host serial console WebSocket" ON)
-    # option(BMCWEB_ENABLE_IBM_MANAGEMENT_CONSOLE "Enable the IBM management console specific functionality" ON)
-    # option(BMCWEB_ENABLE_REDFISH "Enable Redfish APIs.  Paths are under /redfish/v1/" ON)
-    # option(BMCWEB_ENABLE_REDFISH_OEM_MANAGER_FAN_DATA "Enables Redfish OEM fan data on the manager resource" ON)
-    # option(BMCWEB_ENABLE_SESSION_AUTHENTICATION "Enable session authentication" ON)
-    # option(BMCWEB_ENABLE_XTOKEN_AUTHENTICATION "Enable xtoken authentication" ON)
+    # Upstream passes this through meson options; keep the default (3-digit
+    # Redfish message IDs) for the Zephyr build.
 
-    # add_definitions(-DBMCWEB_ENABLE_LOGGING)
-    # add_definitions(-DBMCWEB_ENABLE_DEBUG)
-    # add_definitions(-DBMCWEB_ENABLE_BASIC_AUTHENTICATION)
-    # add_definitions(-DBMCWEB_ENABLE_COOKIE_AUTHENTICATION)
-    # add_definitions(-DBMCWEB_ENABLE_HOST_SERIAL_WEBSOCKET)
-    # add_definitions(-DBMCWEB_ENABLE_IBM_MANAGEMENT_CONSOLE)
-    # add_definitions(-DBMCWEB_ENABLE_REDFISH_OEM_MANAGER_FAN_DATA)
-    # add_definitions(-DBMCWEB_ENABLE_SESSION_AUTHENTICATION)
-    # add_definitions(-DBMCWEB_ENABLE_XTOKEN_AUTHENTICATION)
-    # add_definitions(-DBMCWEB_ENABLE_SSL)
-    # add_definitions(-DBMCWEB_ENABLE_REDFISH)
-
-    # compilation fail
-    # add_definitions(-DBMCWEB_ENABLE_MUTUAL_TLS_AUTHENTICATION)
-    # add_definitions(-DBMCWEB_ENABLE_REDFISH_BMC_JOURNAL)
-    # log
-    # add_definitions(-DBMCWEB_ENABLE_REDFISH_HOST_LOGGER)
+    zephyr_library_compile_definitions(
+        BMCWEB_HYPERVISOR_COMPUTER_SYSTEM=0
+        BMCWEB_REDFISH_HOST_LOGGER=0
+        BMCWEB_REDFISH_CPU_LOG=0
+        BMCWEB_REDFISH_BMC_JOURNAL=0
+        BMCWEB_REDFISH_DUMP_LOG=0
+        BMCWEB_REDFISH_NEW_POWERSUBSYSTEM_THERMALSUBSYSTEM=0
+        BMCWEB_REDFISH_ALLOW_DEPRECATED_POWER_THERMAL=1
+        BMCWEB_REDFISH_ALLOW_SIMPLE_UPDATE=0
+        BMCWEB_REDFISH_SYSTEM_URI_NAME="system"
+        BMCWEB_REDFISH_UPDATESERVICE_USE_DBUS=0
+        BMCWEB_EXPERIMENTAL_REDFISH_MULTI_COMPUTER_SYSTEM=0
+        BMCWEB_REDFISH_MANAGER_URI_NAME="BMC"
+        BMCWEB_REDFISH_PROVISIONING_FEATURE=0
+        BMCWEB_REDFISH_OEM_MANAGER_FAN_DATA=0
+        BMCWEB_REDFISH_USE_3_DIGIT_MESSAGEID=0)
 endif()

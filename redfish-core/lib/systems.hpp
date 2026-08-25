@@ -38,7 +38,11 @@ limitations under the License.
 #include <boost/asio/error.hpp>
 #include <boost/container/flat_map.hpp>
 #include <boost/system/error_code.hpp>
+#ifdef __ZEPHYR__
+#include <cerrno>
+#else
 #include <boost/system/linux_error.hpp>
+#endif /* __ZEPHYR__ */
 #include <boost/url/format.hpp>
 #include <sdbusplus/asio/property.hpp>
 #include <sdbusplus/message.hpp>
@@ -3353,9 +3357,14 @@ inline void afterGetAllowedHostTransitions(
 
     if (ec)
     {
+#ifdef __ZEPHYR__
+        if ((ec.value() == EBADR) ||
+            (ec.value() == boost::asio::error::basic_errors::host_unreachable))
+#else
         if ((ec.value() ==
              boost::system::linux_error::bad_request_descriptor) ||
             (ec.value() == boost::asio::error::basic_errors::host_unreachable))
+#endif /* __ZEPHYR__ */
         {
             // Property not implemented so just return defaults
             BMCWEB_LOG_DEBUG("Property not available {}", ec);

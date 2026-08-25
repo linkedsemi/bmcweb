@@ -32,11 +32,30 @@
 
 #ifdef __ZEPHYR__
 #include <dbus_broker.h>
-#include <zephyr/kernel.h>
 #include <printk_thread.h>
+#include <systemd/sd-daemon.h>
+#include <zephyr/kernel.h>
 
 extern struct k_sem bmcweb_ready_sem;
 
+int SD_LISTEN_FDS_START = -1;
+int create_listen_socket()
+{
+    int fd, ret;
+
+    fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(BMCWEB_HTTPS_PORT);
+    addr.sin_addr.s_addr = INADDR_ANY;
+
+    ret = bind(fd, (sockaddr*)&addr, sizeof(addr));
+    __ASSERT_NO_MSG(ret == 0);
+    ret = listen(fd, SOMAXCONN);
+    __ASSERT_NO_MSG(ret == 0);
+    return fd;
+}
 #endif  /* __ZEPHYR__ */
 
 static void setLogLevel(const std::string& logLevel)
@@ -54,19 +73,34 @@ static void setLogLevel(const std::string& logLevel)
 
 int runWebserver()
 {
-    printk_thread(">>> bmcweb_main");
-    k_sem_give(&bmcweb_ready_sem);
+#ifdef __ZEPHYR__
+    SD_LISTEN_FDS_START = create_listen_socket();
+    printk_thread("SD_LISTEN_FDS_START:%d", SD_LISTEN_FDS_START);
 
-    return 0;
-}
+    sd_bus* bus;
+    int rc = connect_to_dbroker(&bus);
+    if (rc < 0)
+    {
+        printk_thread("Failed to connect to dbroker: %d", rc);
+        return rc;
+    }
+    auto io = std::make_shared<boost::asio::io_context>();
+    App app(io);
 
-int runWebservertest()
-{
+    std::shared_ptr<sdbusplus::asio::connection> systemBus =
+        std::make_shared<sdbusplus::asio::connection>(*io, bus);
+    systemBus->request_name("xyz.openbmc_project.bmcweb");
+    printk_thread("request_name");
+
+#else
+
     auto io = std::make_shared<boost::asio::io_context>();
     App app(io);
 
     std::shared_ptr<sdbusplus::asio::connection> systemBus =
         std::make_shared<sdbusplus::asio::connection>(*io);
+#endif /* __ZEPHYR__ */
+
     crow::connections::systemBus = systemBus.get();
 
     auto server = sdbusplus::asio::object_server(systemBus);
@@ -142,7 +176,11 @@ int runWebservertest()
 
     app.run();
 
+#ifdef __ZEPHYR__
+    k_sem_give(&bmcweb_ready_sem);
+#else
     systemBus->request_name("xyz.openbmc_project.bmcweb");
+#endif  /* __ZEPHYR__ */
 
     io->run();
 

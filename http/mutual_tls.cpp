@@ -10,7 +10,9 @@
 extern "C"
 {
 #include <openssl/obj_mac.h>
+#ifndef __ZEPHYR__
 #include <openssl/types.h>
+#endif /* __ZEPHYR__ */
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
 #include <openssl/x509v3.h>

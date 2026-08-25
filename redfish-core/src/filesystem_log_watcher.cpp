@@ -5,7 +5,9 @@
 #include "event_service_manager.hpp"
 #include "logging.hpp"
 
+#ifndef __ZEPHYR__
 #include <sys/inotify.h>
+#endif /* __ZEPHYR__ */
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/error.hpp>
@@ -104,11 +106,18 @@ void FilesystemLogWatcher::readEventLogsFromFile()
 }
 
 static constexpr const char* redfishEventLogDir = "/var/log";
+#ifndef __ZEPHYR__
 static constexpr const size_t iEventSize = sizeof(inotify_event);
+#endif /* __ZEPHYR__ */
 
 void FilesystemLogWatcher::onINotify(const boost::system::error_code& ec,
                                      std::size_t bytesTransferred)
 {
+#ifdef __ZEPHYR__
+    // inotify is not available on Zephyr; this callback is never scheduled.
+    (void)ec;
+    (void)bytesTransferred;
+#else
     if (ec == boost::asio::error::operation_aborted)
     {
         BMCWEB_LOG_DEBUG("Inotify was canceled (shutdown?)");
@@ -189,20 +198,35 @@ void FilesystemLogWatcher::onINotify(const boost::system::error_code& ec,
     }
 
     watchRedfishEventLogFile();
+#endif /* __ZEPHYR__ */
 }
 
 void FilesystemLogWatcher::watchRedfishEventLogFile()
 {
+#ifdef __ZEPHYR__
+    // No-op: file-system event monitoring is disabled on Zephyr.
+#else
     inotifyConn.async_read_some(
         boost::asio::buffer(readBuffer),
         std::bind_front(&FilesystemLogWatcher::onINotify, this));
+#endif /* __ZEPHYR__ */
 }
 
 FilesystemLogWatcher::FilesystemLogWatcher(boost::asio::io_context& ioc) :
+#ifndef __ZEPHYR__
     inotifyFd(inotify_init1(IN_NONBLOCK)), inotifyConn(ioc)
+#else
+    // inotifyFd stays at its default -1; monitoring is disabled.
+    inotifyConn(ioc)
+#endif /* __ZEPHYR__ */
 {
     BMCWEB_LOG_DEBUG("starting Event Log Monitor");
 
+#ifdef __ZEPHYR__
+    BMCWEB_LOG_ERROR(
+        "inotify not supported on Zephyr; event log monitoring disabled");
+    return;
+#else
     if (inotifyFd == -1)
     {
         BMCWEB_LOG_ERROR("inotify_init1 failed.");
@@ -237,5 +261,6 @@ FilesystemLogWatcher::FilesystemLogWatcher(boost::asio::io_context& ioc) :
     {
         cacheRedfishLogFile();
     }
+#endif /* __ZEPHYR__ */
 }
 } // namespace redfish

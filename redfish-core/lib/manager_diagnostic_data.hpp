@@ -10,7 +10,11 @@
 #include "routing.hpp"
 
 #include <boost/system/error_code.hpp>
+#ifdef __ZEPHYR__
+#include <cerrno>
+#else
 #include <boost/system/linux_error.hpp>
+#endif /* __ZEPHYR__ */
 #include <boost/url/format.hpp>
 #include <nlohmann/json.hpp>
 #include <sdbusplus/asio/property.hpp>
@@ -38,7 +42,11 @@ inline bool checkErrors(
         BMCWEB_LOG_WARNING("Failed to find server, Dbus error {}", ec);
         return true;
     }
+#ifdef __ZEPHYR__
+    if (ec.value() == EBADR)
+#else
     if (ec.value() == boost::system::linux_error::bad_request_descriptor)
+#endif /* __ZEPHYR__ */
     {
         BMCWEB_LOG_WARNING("Invalid Path, Dbus error {}", ec);
         return true;

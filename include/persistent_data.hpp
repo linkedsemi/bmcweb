@@ -23,9 +23,12 @@ class ConfigFile
     uint64_t jsonRevision = 1;
 
   public:
+#ifdef __ZEPHYR__
+    static constexpr const char* filename = CONFIG_FS_ROOT_OVERLAY "/bmcweb_persistent_data.json";
+#else
     // todo(ed) should read this from a fixed location somewhere, not CWD
     static constexpr const char* filename = "bmcweb_persistent_data.json";
-
+#endif /* __ZEPHYR__ */
     ConfigFile()
     {
         readData();
@@ -238,6 +241,7 @@ class ConfigFile
             std::filesystem::perms::owner_read |
             std::filesystem::perms::owner_write |
             std::filesystem::perms::group_read;
+#ifndef __ZEPHYR__
         std::filesystem::permissions(filename, permission, ec);
         if (ec)
         {
@@ -245,6 +249,11 @@ class ConfigFile
                                 ec.message());
             return;
         }
+#else
+        // std::filesystem::permissions() is not implemented on Zephyr
+        // (ENOSYS); skip it so persistent data is still written.
+        (void)permission;
+#endif /* __ZEPHYR__ */
         const AuthConfigMethods& c =
             SessionStore::getInstance().getAuthMethodsConfig();
         const auto& eventServiceConfig =

@@ -52,6 +52,20 @@ limitations under the License.
 #include <unordered_map>
 #include <vector>
 
+#ifdef __ZEPHYR__
+// memfd_create() is a Linux-only syscall.  Firmware upload via a memory-backed
+// fd is not supported on Zephyr; returning -1 lets the existing
+// (memfd.fd == -1) error path handle it.
+inline int memfd_create(const char* /*name*/, unsigned int /*flags*/)
+{
+#ifdef __ZEPHYR__
+    BMCWEB_LOG_ERROR(
+        "memfd_create() not supported on Zephyr, firmware upload disabled");
+#endif
+    return -1;
+}
+#endif /* __ZEPHYR__ */
+
 namespace redfish
 {
 

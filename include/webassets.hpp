@@ -49,16 +49,19 @@ inline std::string getStaticEtag(const std::filesystem::path& webpath)
     return std::format("\"{}\"", hash);
 }
 
-static constexpr std::string_view rootpath("/usr/share/www/");
-
-struct StaticFile
-{
-    std::filesystem::path absolutePath;
-    std::string_view contentType;
-    std::string_view contentEncoding;
-    std::string etag;
-    bool renamed = false;
-};
+#ifdef __ZEPHYR__
+    static constexpr std::string_view rootpath(CONFIG_FS_ROOT_OVERLAY"/usr/share/www/");
+#else
+    static constexpr std::string_view rootpath("/usr/share/www/");
+#endif /* __ZEPHYR__ */
+    struct StaticFile
+    {
+        std::filesystem::path absolutePath;
+        std::string_view contentType;
+        std::string_view contentEncoding;
+        std::string etag;
+        bool renamed = false;
+    };
 
 inline void handleStaticAsset(
     const crow::Request& req,
