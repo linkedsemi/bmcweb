@@ -53,18 +53,10 @@ limitations under the License.
 #include <vector>
 
 #ifdef __ZEPHYR__
-// memfd_create() is a Linux-only syscall.  Firmware upload via a memory-backed
-// fd is not supported on Zephyr; returning -1 lets the existing
-// (memfd.fd == -1) error path handle it.
-inline int memfd_create(const char* /*name*/, unsigned int /*flags*/)
-{
-#ifdef __ZEPHYR__
-    BMCWEB_LOG_ERROR(
-        "memfd_create() not supported on Zephyr, firmware upload disabled");
+// memfd_create() is implemented by dbus-broker's Zephyr compatibility layer
+// (zephyr/tool/sys_compat.c), which bmcweb links against.
+extern "C" int memfd_create(const char *name, unsigned int flags);
 #endif
-    return -1;
-}
-#endif /* __ZEPHYR__ */
 
 namespace redfish
 {
@@ -629,7 +621,11 @@ inline void handleUpdateServiceSimpleUpdateAction(
 
 inline void uploadImageFile(crow::Response& res, std::string_view body)
 {
+#ifdef __ZEPHYR__
+    std::filesystem::path filepath("/SD2:/images/" + bmcweb::getRandomUUID());
+#else
     std::filesystem::path filepath("/tmp/images/" + bmcweb::getRandomUUID());
+#endif /* __ZEPHYR__ */
 
     BMCWEB_LOG_DEBUG("Writing file to {}", filepath.string());
     std::ofstream out(filepath, std::ofstream::out | std::ofstream::binary |

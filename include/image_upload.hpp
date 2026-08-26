@@ -97,8 +97,13 @@ inline void
         "member='InterfacesAdded',path='/xyz/openbmc_project/software'",
         callback);
 
+#ifdef __ZEPHYR__
+    std::filesystem::path filepath("/SD2:/images/" + bmcweb::getRandomUUID());
+    BMCWEB_LOG_DEBUG("Writing file to {}", filepath.string());
+#else
     std::string filepath("/tmp/images/" + bmcweb::getRandomUUID());
     BMCWEB_LOG_DEBUG("Writing file to {}", filepath);
+#endif
     std::ofstream out(filepath, std::ofstream::out | std::ofstream::binary |
                                     std::ofstream::trunc);
     out << req.body();

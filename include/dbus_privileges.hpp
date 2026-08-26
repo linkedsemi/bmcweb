@@ -129,6 +129,22 @@ void requestUserInfo(const std::string& username,
                      const std::shared_ptr<bmcweb::AsyncResp>& asyncResp,
                      CallbackFn&& callback)
 {
+#ifdef __ZEPHYR__
+    // Temporary Zephyr stub: xyz.openbmc_project.User.Manager is not ported,
+    // so GetUserInfo always fails.  Treat every authenticated session as an
+    // Administrator until a real user manager is available.
+    BMCWEB_LOG_DEBUG(
+        "User.Manager unavailable on Zephyr; treating {} as Administrator",
+        username);
+    dbus::utility::DBusPropertiesMap userInfoMap{
+        {"UserPrivilege", std::string("priv-admin")},
+        {"RemoteUser", bool(false)},
+        {"UserPasswordExpired", bool(false)},
+        {"UserGroups", std::vector<std::string>{}},
+    };
+    callback(userInfoMap);
+    return;
+#else
     crow::connections::systemBus->async_method_call(
         [asyncResp, callback = std::forward<CallbackFn>(callback)](
             const boost::system::error_code& ec,
@@ -144,6 +160,7 @@ void requestUserInfo(const std::string& username,
         },
         "xyz.openbmc_project.User.Manager", "/xyz/openbmc_project/user",
         "xyz.openbmc_project.User.Manager", "GetUserInfo", username);
+#endif /* __ZEPHYR__ */
 }
 
 template <typename CallbackFn>

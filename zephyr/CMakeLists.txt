@@ -43,6 +43,7 @@ if(CONFIG_OPENBMC_BMCWEB)
     zephyr_library_link_libraries(sdbusplus)
     zephyr_library_link_libraries(tinyxml2)
     zephyr_library_link_libraries(CLI11)
+    zephyr_library_link_libraries(dbus-broker)
     # zephyr_library_link_libraries(phosphor-user-manager)
 
     # Upstream passes this through meson options; keep the default (3-digit
