@@ -34,6 +34,11 @@ limitations under the License.
 
 #include <sys/mman.h>
 
+#ifdef __ZEPHYR__
+#include <array>
+#include <cstdio>
+#include <fstream>
+#endif /* __ZEPHYR__ */
 #include <boost/system/error_code.hpp>
 #include <boost/url/format.hpp>
 #include <sdbusplus/asio/property.hpp>
@@ -643,6 +648,28 @@ inline void uploadImageFile(crow::Response& res, std::string_view body)
     }
 }
 
+#ifdef __ZEPHYR__
+inline void uploadImageFile(crow::Response& res,
+                            const bmcweb::HttpBody::value_type& body)
+{
+    if (!body.tempFile().empty() && body.file().is_open())
+    {
+        std::filesystem::path filepath(std::string(bmcweb::httpBodyImageDir) +
+                                       "/" + bmcweb::getRandomUUID());
+        if (std::rename(body.tempFile().c_str(), filepath.string().c_str()) !=
+            0)
+        {
+            BMCWEB_LOG_ERROR("Failed to move uploaded file {} to {}",
+                             body.tempFile(), filepath.string());
+            messages::internalError(res);
+            return;
+        }
+        return;
+    }
+
+    uploadImageFile(res, body.str());
+}
+#endif /* __ZEPHYR__ */
 // Convert the Request Apply Time to the D-Bus value
 inline bool convertApplyTime(crow::Response& res, const std::string& applyTime,
                              std::string& applyTimeNewVal)
@@ -1038,10 +1065,123 @@ inline void doHTTPUpdate(const std::shared_ptr<bmcweb::AsyncResp>& asyncResp,
         monitorForSoftwareAvailable(asyncResp, req,
                                     "/redfish/v1/UpdateService");
 
+#ifdef __ZEPHYR__
+        uploadImageFile(asyncResp->res, req.bodyValue());
+#else
         uploadImageFile(asyncResp->res, req.body());
+#endif /* __ZEPHYR__ */
     }
 }
 
+#ifdef __ZEPHYR__
+// Stream the UpdateFile part out of a multipart envelope that was spilled to
+// a temp file while receiving, writing only the file bytes to outPath.  This
+// keeps RAM usage bounded instead of buffering the whole upload in the app
+// heap.
+inline bool extractMultipartUpdateFile(
+    const bmcweb::HttpBody::value_type& body, std::string_view contentType,
+    const std::filesystem::path& outPath)
+{
+    constexpr std::string_view prefix = "multipart/form-data; boundary=";
+    if (!contentType.starts_with(prefix))
+    {
+        return false;
+    }
+
+    std::string_view boundaryParam = contentType.substr(prefix.size());
+    if (boundaryParam.size() >= 2 && boundaryParam.front() == '"' &&
+        boundaryParam.back() == '"')
+    {
+        boundaryParam.remove_prefix(1);
+        boundaryParam.remove_suffix(1);
+    }
+    if (boundaryParam.empty())
+    {
+        return false;
+    }
+    std::string delimiter = "\r\n--" + std::string(boundaryParam);
+
+    std::ifstream in(body.tempFile(), std::ios::binary);
+    std::ofstream out(outPath, std::ofstream::out | std::ofstream::binary |
+                                   std::ofstream::trunc);
+    if (!in.is_open() || !out.is_open())
+    {
+        return false;
+    }
+
+    std::array<char, 8192> buf{};
+    constexpr std::string_view nameToken = "name=\"UpdateFile\"";
+    constexpr std::string_view headerEnd = "\r\n\r\n";
+
+    // Phase 1: locate the UpdateFile part header and its terminating blank
+    // line.  Only a bounded window is kept, so the scan never grows with the
+    // upload size.
+    std::string scan;
+    bool nameFound = false;
+    std::string pending;
+    while (true)
+    {
+        in.read(buf.data(), buf.size());
+        std::streamsize got = in.gcount();
+        if (got <= 0)
+        {
+            return false; // EOF before the file part header was found
+        }
+        std::string_view chunk(buf.data(), static_cast<size_t>(got));
+        scan.append(chunk);
+
+        if (!nameFound)
+        {
+            if (scan.find(nameToken) == std::string::npos)
+            {
+                if (scan.size() > nameToken.size() + 64)
+                {
+                    scan.erase(0, scan.size() - (nameToken.size() + 64));
+                }
+                continue;
+            }
+            nameFound = true;
+        }
+
+        if (auto pos = scan.find(headerEnd); pos != std::string::npos)
+        {
+            pending = scan.substr(pos + headerEnd.size());
+            break;
+        }
+        if (scan.size() > headerEnd.size())
+        {
+            scan.erase(0, scan.size() - headerEnd.size());
+        }
+    }
+
+    // Phase 2: copy the part bytes to the output file until the boundary that
+    // terminates the part.  Bytes that could still be part of the delimiter
+    // are held back in pending.
+    const size_t keep = delimiter.size() + 2;
+    while (true)
+    {
+        if (auto pos = pending.find(delimiter); pos != std::string::npos)
+        {
+            out.write(pending.data(), static_cast<std::streamsize>(pos));
+            return out.good();
+        }
+        while (pending.size() >= keep + bmcweb::httpBodyWriteBatchSize)
+        {
+            size_t toWrite = pending.size() - keep;
+            out.write(pending.data(), static_cast<std::streamsize>(toWrite));
+            pending.erase(0, toWrite);
+        }
+
+        in.read(buf.data(), buf.size());
+        std::streamsize got = in.gcount();
+        if (got <= 0)
+        {
+            return false; // EOF without a terminating boundary
+        }
+        pending.append(buf.data(), static_cast<size_t>(got));
+    }
+}
+#endif /* __ZEPHYR__ */
 inline void
     handleUpdateServicePost(App& app, const crow::Request& req,
                             const std::shared_ptr<bmcweb::AsyncResp>& asyncResp)
@@ -1062,6 +1202,27 @@ inline void
     }
     else if (contentType.starts_with("multipart/form-data"))
     {
+#ifdef __ZEPHYR__
+        const bmcweb::HttpBody::value_type& body = req.bodyValue();
+        if (!body.tempFile().empty() && body.file().is_open())
+        {
+            // The whole multipart envelope was spilled to a temp file while
+            // receiving; extract the UpdateFile part straight to disk.
+            monitorForSoftwareAvailable(asyncResp, req,
+                                        "/redfish/v1/UpdateService");
+            std::filesystem::path filepath(
+                std::string(bmcweb::httpBodyImageDir) + "/" +
+                bmcweb::getRandomUUID());
+            if (!extractMultipartUpdateFile(body, contentType, filepath))
+            {
+                BMCWEB_LOG_ERROR(
+                    "Failed to extract UpdateFile from multipart upload");
+                messages::internalError(asyncResp->res);
+                return;
+            }
+            return;
+        }
+#endif /* __ZEPHYR__ */
         MultipartParser parser;
 
         ParserError ec = parser.parse(req);

@@ -74,6 +74,12 @@ static void setLogLevel(const std::string& logLevel)
 int runWebserver()
 {
 #ifdef __ZEPHYR__
+    if (!bmcweb::ensureUploadDirs())
+    {
+        BMCWEB_LOG_CRITICAL("Failed to create upload directories");
+    }
+    bmcweb::cleanupStaleUploads();
+
     SD_LISTEN_FDS_START = create_listen_socket();
     printk_thread("SD_LISTEN_FDS_START:%d", SD_LISTEN_FDS_START);
 

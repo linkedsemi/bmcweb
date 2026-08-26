@@ -103,11 +103,47 @@ inline void
 #else
     std::string filepath("/tmp/images/" + bmcweb::getRandomUUID());
     BMCWEB_LOG_DEBUG("Writing file to {}", filepath);
-#endif
+#endif /* __ZEPHYR__ */
+#ifdef __ZEPHYR__
+    const bmcweb::HttpBody::value_type& body = req.bodyValue();
+    if (!body.tempFile().empty() && body.file().is_open())
+    {
+        std::string_view contentType = req.getHeaderValue("content-type");
+        if (contentType.starts_with("multipart/form-data"))
+        {
+            BMCWEB_LOG_ERROR(
+                "Multipart file-backed upload not supported on /upload/image");
+            asyncResp->res.result(
+                boost::beast::http::status::not_implemented);
+            return;
+        }
+        std::filesystem::path zephyrPath(
+            std::string(bmcweb::httpBodyImageDir) + "/" +
+            bmcweb::getRandomUUID());
+        if (std::rename(body.tempFile().c_str(),
+                        zephyrPath.string().c_str()) != 0)
+        {
+            BMCWEB_LOG_ERROR("Failed to move uploaded file {} to {}",
+                             body.tempFile(), zephyrPath.string());
+            asyncResp->res.result(
+                boost::beast::http::status::internal_server_error);
+            return;
+        }
+    }
+    else
+    {
+        std::ofstream out(filepath, std::ofstream::out |
+                                        std::ofstream::binary |
+                                        std::ofstream::trunc);
+        out << body.str();
+        out.close();
+    }
+#else
     std::ofstream out(filepath, std::ofstream::out | std::ofstream::binary |
                                     std::ofstream::trunc);
     out << req.body();
     out.close();
+#endif /* __ZEPHYR__ */
     timeout.async_wait(timeoutHandler);
 }
 

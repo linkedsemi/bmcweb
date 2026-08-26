@@ -234,7 +234,11 @@ class HTTP2Connection :
         if (reqReader)
         {
             boost::beast::error_code ec;
+#ifdef __ZEPHYR__
+            reqReader->finish(ec);
+#else
             bmcweb::HttpBody::reader::finish(ec);
+#endif /* __ZEPHYR__ */
             if (ec)
             {
                 BMCWEB_LOG_CRITICAL("Failed to finalize payload");
@@ -306,9 +310,15 @@ class HTTP2Connection :
             thisStream->second.reqReader;
         if (!reqReader)
         {
+#ifdef __ZEPHYR__
+            reqReader.emplace(
+                bmcweb::HttpBody::reader(thisStream->second.req->req,
+                                         thisStream->second.req->req.body()));
+#else
             reqReader.emplace(
                 bmcweb::HttpBody::reader(thisStream->second.req->req.base(),
                                          thisStream->second.req->req.body()));
+#endif /* __ZEPHYR__ */
         }
         boost::beast::error_code ec;
         reqReader->put(boost::asio::const_buffer(data, len), ec);

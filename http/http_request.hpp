@@ -126,6 +126,12 @@ struct Request
         return req.body().str();
     }
 
+#ifdef __ZEPHYR__
+    const bmcweb::HttpBody::value_type& bodyValue() const
+    {
+        return req.body();
+    }
+#endif /* __ZEPHYR__ */
     bool target(std::string_view target)
     {
         req.target(target);
