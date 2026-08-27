@@ -98,7 +98,8 @@ inline void
         callback);
 
 #ifdef __ZEPHYR__
-    std::filesystem::path filepath("/SD2:/images/" + bmcweb::getRandomUUID());
+    std::filesystem::path filepath(std::string(bmcweb::httpBodyImageDir) + "/" +
+                                   bmcweb::getRandomUUID());
     BMCWEB_LOG_DEBUG("Writing file to {}", filepath.string());
 #else
     std::string filepath("/tmp/images/" + bmcweb::getRandomUUID());
@@ -106,7 +107,7 @@ inline void
 #endif /* __ZEPHYR__ */
 #ifdef __ZEPHYR__
     const bmcweb::HttpBody::value_type& body = req.bodyValue();
-    if (!body.tempFile().empty() && body.file().is_open())
+    if (!body.tempFile().empty())
     {
         std::string_view contentType = req.getHeaderValue("content-type");
         if (contentType.starts_with("multipart/form-data"))

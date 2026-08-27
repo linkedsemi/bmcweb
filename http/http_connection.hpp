@@ -766,7 +766,13 @@ class Connection :
             return;
         }
 
+#ifdef __ZEPHYR__
+        // Large uploads over TLS take longer than 15s on the MCU; give the
+        // connection enough time to stream the body.
+        std::chrono::seconds timeout(600);
+#else
         std::chrono::seconds timeout(15);
+#endif /* __ZEPHYR__ */
 
         std::weak_ptr<Connection<Adaptor, Handler>> weakSelf = weak_from_this();
         timer.expires_after(timeout);

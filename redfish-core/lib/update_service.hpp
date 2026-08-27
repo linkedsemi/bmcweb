@@ -624,13 +624,36 @@ inline void handleUpdateServiceSimpleUpdateAction(
     BMCWEB_LOG_DEBUG("Exit UpdateService.SimpleUpdate doPost");
 }
 
+#ifdef __ZEPHYR__
 inline void uploadImageFile(crow::Response& res, std::string_view body)
 {
-#ifdef __ZEPHYR__
-    std::filesystem::path filepath("/SD2:/images/" + bmcweb::getRandomUUID());
+    std::filesystem::path filepath(std::string(bmcweb::httpBodyImageDir) + "/" +
+                                   bmcweb::getRandomUUID());
+    BMCWEB_LOG_DEBUG("Writing file to {}", filepath.string());
+    boost::beast::file_posix out;
+    boost::system::error_code ec;
+    out.open(filepath.string().c_str(), boost::beast::file_mode::write, ec);
+    if (ec)
+    {
+        BMCWEB_LOG_ERROR("Failed to open upload file {}", filepath.string());
+        messages::internalError(res);
+        cleanUp();
+        return;
+    }
+    out.write(body.data(), body.size(), ec);
+    if (ec)
+    {
+        BMCWEB_LOG_ERROR("Failed to write upload file {}", filepath.string());
+        messages::internalError(res);
+        cleanUp();
+        return;
+    }
+    out.close(ec);
+}
 #else
+inline void uploadImageFile(crow::Response& res, std::string_view body)
+{
     std::filesystem::path filepath("/tmp/images/" + bmcweb::getRandomUUID());
-#endif /* __ZEPHYR__ */
 
     BMCWEB_LOG_DEBUG("Writing file to {}", filepath.string());
     std::ofstream out(filepath, std::ofstream::out | std::ofstream::binary |
@@ -647,12 +670,13 @@ inline void uploadImageFile(crow::Response& res, std::string_view body)
         cleanUp();
     }
 }
+#endif /* __ZEPHYR__ */
 
 #ifdef __ZEPHYR__
 inline void uploadImageFile(crow::Response& res,
                             const bmcweb::HttpBody::value_type& body)
 {
-    if (!body.tempFile().empty() && body.file().is_open())
+    if (!body.tempFile().empty())
     {
         std::filesystem::path filepath(std::string(bmcweb::httpBodyImageDir) +
                                        "/" + bmcweb::getRandomUUID());
@@ -1032,6 +1056,10 @@ inline void
     }
     else
     {
+#ifdef __ZEPHYR__
+        uploadImageFile(asyncResp->res, multipart->uploadData);
+        redfish::messages::success(asyncResp->res);
+#else
         setApplyTime(asyncResp, *multipart->applyTime);
 
         // Setup callback for when new software detected
@@ -1039,6 +1067,7 @@ inline void
                                     "/redfish/v1/UpdateService");
 
         uploadImageFile(asyncResp->res, multipart->uploadData);
+#endif /* __ZEPHYR__ */
     }
 }
 
@@ -1061,13 +1090,14 @@ inline void doHTTPUpdate(const std::shared_ptr<bmcweb::AsyncResp>& asyncResp,
     }
     else
     {
+#ifdef __ZEPHYR__
+        uploadImageFile(asyncResp->res, req.bodyValue());
+        redfish::messages::success(asyncResp->res);
+#else
         // Setup callback for when new software detected
         monitorForSoftwareAvailable(asyncResp, req,
                                     "/redfish/v1/UpdateService");
 
-#ifdef __ZEPHYR__
-        uploadImageFile(asyncResp->res, req.bodyValue());
-#else
         uploadImageFile(asyncResp->res, req.body());
 #endif /* __ZEPHYR__ */
     }
@@ -1204,12 +1234,10 @@ inline void
     {
 #ifdef __ZEPHYR__
         const bmcweb::HttpBody::value_type& body = req.bodyValue();
-        if (!body.tempFile().empty() && body.file().is_open())
+        if (!body.tempFile().empty())
         {
             // The whole multipart envelope was spilled to a temp file while
             // receiving; extract the UpdateFile part straight to disk.
-            monitorForSoftwareAvailable(asyncResp, req,
-                                        "/redfish/v1/UpdateService");
             std::filesystem::path filepath(
                 std::string(bmcweb::httpBodyImageDir) + "/" +
                 bmcweb::getRandomUUID());
@@ -1220,6 +1248,7 @@ inline void
                 messages::internalError(asyncResp->res);
                 return;
             }
+            redfish::messages::success(asyncResp->res);
             return;
         }
 #endif /* __ZEPHYR__ */

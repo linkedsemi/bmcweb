@@ -55,8 +55,8 @@ constexpr std::string_view httpBodyTempDir = "/SD2:/bmcweb";
 // change this constant to move the final image location.
 constexpr std::string_view httpBodyImageDir = "/SD2:/images";
 
-// Ensure both the spill dir and the final image dir exist.  Called at
-// startup and defensively before renaming or extracting an upload.
+// Ensure both the spill dir and the final image dir exist.  Called once at
+// startup before the server accepts requests.
 inline bool ensureUploadDirs()
 {
     std::error_code ec;
@@ -91,6 +91,7 @@ inline void cleanupStaleUploads()
     }
     closedir(dir);
 }
+
 #endif
 struct HttpBody
 {
@@ -500,6 +501,17 @@ class HttpBody::reader
                     return;
                 }
                 writeBuf.clear();
+            }
+            // FAT does not finalize the file size in the directory entry
+            // until the file is closed; the handler renames the temp file, so
+            // close it here to make sure the data and size are flushed.
+            if (value.file().is_open())
+            {
+                value.file().close(ec);
+                if (ec)
+                {
+                    return;
+                }
             }
             value.refreshFileSize();
         }
