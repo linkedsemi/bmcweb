@@ -444,6 +444,18 @@ inline void monitorForSoftwareAvailable(
     const crow::Request& req, const std::string& url,
     int timeoutTimeSeconds = 25)
 {
+#ifdef __ZEPHYR__
+    // Zephyr has no software manager yet, so nothing will ever emit the
+    // InterfacesAdded signal this function waits for.  Keep the call sites
+    // (and the full Linux implementation below) intact so the real wait
+    // flow can be restored by deleting this branch once a software
+    // management service is ported.
+    (void)asyncResp;
+    (void)req;
+    (void)url;
+    (void)timeoutTimeSeconds;
+    return;
+#else
     // Only allow one FW update at a time
     if (fwUpdateInProgress)
     {
@@ -488,6 +500,7 @@ inline void monitorForSoftwareAvailable(
         "member='InterfacesAdded',"
         "path='/xyz/openbmc_project/logging'",
         std::bind_front(afterUpdateErrorMatcher, asyncResp, url));
+#endif /* __ZEPHYR__ */
 }
 
 inline std::optional<boost::urls::url> parseSimpleUpdateUrl(
@@ -1056,17 +1069,20 @@ inline void
     }
     else
     {
-#ifdef __ZEPHYR__
-        uploadImageFile(asyncResp->res, multipart->uploadData);
-        redfish::messages::success(asyncResp->res);
-#else
+#ifndef __ZEPHYR__
         setApplyTime(asyncResp, *multipart->applyTime);
+#endif /* __ZEPHYR__ */
 
         // Setup callback for when new software detected
         monitorForSoftwareAvailable(asyncResp, req,
                                     "/redfish/v1/UpdateService");
 
         uploadImageFile(asyncResp->res, multipart->uploadData);
+#ifdef __ZEPHYR__
+        // No software manager on Zephyr yet, so monitorForSoftwareAvailable()
+        // is a no-op and the response is completed once the image is saved.
+        // Drop this once an InterfacesAdded matcher can drive the reply.
+        redfish::messages::success(asyncResp->res);
 #endif /* __ZEPHYR__ */
     }
 }
@@ -1090,14 +1106,17 @@ inline void doHTTPUpdate(const std::shared_ptr<bmcweb::AsyncResp>& asyncResp,
     }
     else
     {
-#ifdef __ZEPHYR__
-        uploadImageFile(asyncResp->res, req.bodyValue());
-        redfish::messages::success(asyncResp->res);
-#else
         // Setup callback for when new software detected
         monitorForSoftwareAvailable(asyncResp, req,
                                     "/redfish/v1/UpdateService");
 
+#ifdef __ZEPHYR__
+        uploadImageFile(asyncResp->res, req.bodyValue());
+        // No software manager on Zephyr yet, so monitorForSoftwareAvailable()
+        // is a no-op and the response is completed once the image is saved.
+        // Drop this once an InterfacesAdded matcher can drive the reply.
+        redfish::messages::success(asyncResp->res);
+#else
         uploadImageFile(asyncResp->res, req.body());
 #endif /* __ZEPHYR__ */
     }
@@ -1248,6 +1267,8 @@ inline void
                 messages::internalError(asyncResp->res);
                 return;
             }
+            monitorForSoftwareAvailable(asyncResp, req,
+                                        "/redfish/v1/UpdateService");
             redfish::messages::success(asyncResp->res);
             return;
         }
