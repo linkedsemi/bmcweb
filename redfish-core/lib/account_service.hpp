@@ -2006,6 +2006,31 @@ inline void
         }
     }
 
+#ifdef __ZEPHYR__
+    // Temporary Zephyr stub: xyz.openbmc_project.User.Manager is not ported,
+    // so the D-Bus lookup below always fails.  Return a hardcoded
+    // Administrator account so the WebUI can log in.  Remove once a real
+    // user manager is available.
+    asyncResp->res.jsonValue["@odata.type"] =
+        "#ManagerAccount.v1_7_0.ManagerAccount";
+    asyncResp->res.jsonValue["@odata.id"] = boost::urls::format(
+        "/redfish/v1/AccountService/Accounts/{}", accountName);
+    asyncResp->res.jsonValue["Id"] = accountName;
+    asyncResp->res.jsonValue["UserName"] = accountName;
+    asyncResp->res.jsonValue["Name"] = "User Account";
+    asyncResp->res.jsonValue["Description"] = "User Account";
+    asyncResp->res.jsonValue["Password"] = nullptr;
+    asyncResp->res.jsonValue["StrictAccountTypes"] = true;
+    asyncResp->res.jsonValue["Enabled"] = true;
+    asyncResp->res.jsonValue["Locked"] = false;
+    asyncResp->res.jsonValue["RoleId"] = "Administrator";
+    asyncResp->res.jsonValue["Links"]["Role"]["@odata.id"] =
+        "/redfish/v1/AccountService/Roles/Administrator";
+    asyncResp->res.jsonValue["PasswordChangeRequired"] = false;
+    asyncResp->res.jsonValue["AccountTypes"] =
+        nlohmann::json::array({"Redfish", "WebUI"});
+    return;
+#else
     sdbusplus::message::object_path path("/xyz/openbmc_project/user");
     dbus::utility::getManagedObjects(
         "xyz.openbmc_project.User.Manager", path,
@@ -2146,6 +2171,7 @@ inline void
             asyncResp->res.jsonValue["Id"] = accountName;
             asyncResp->res.jsonValue["UserName"] = accountName;
         });
+#endif /* __ZEPHYR__ */
 }
 
 inline void
