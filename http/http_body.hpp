@@ -49,11 +49,13 @@ constexpr size_t httpBodyWriteBatchSize = 64UL * 1024UL;
 
 // Temporary upload files live here until the route commits them by renaming.
 // Configurable: change this constant to move the spill location.
-constexpr std::string_view httpBodyTempDir = "/SD2:/bmcweb";
+constexpr std::string_view httpBodyTempDir = "/SD2:/var/lib/bmcweb";
 
 // Completed firmware images are stored here after an update.  Configurable:
 // change this constant to move the final image location.
 constexpr std::string_view httpBodyImageDir = "/SD2:/images";
+
+constexpr std::string_view uploadTmpSuffix = ".upload.tmp";
 
 // Ensure both the spill dir and the final image dir exist.  Called once at
 // startup before the server accepts requests.
@@ -66,6 +68,13 @@ inline bool ensureUploadDirs()
         return false;
     }
     std::filesystem::create_directories(std::string(httpBodyImageDir), ec);
+    if (ec)
+    {
+        return false;
+    }
+    // EventLog handlers scan this directory for redfish log files
+    // (log_services.hpp); a fresh SD card has no /var/log yet.
+    std::filesystem::create_directories("/SD2:/var/log", ec);
     return !ec;
 }
 
@@ -78,7 +87,7 @@ inline void cleanupStaleUploads()
     {
         return;
     }
-    constexpr std::string_view suffix = ".upload.tmp";
+    constexpr std::string_view suffix = uploadTmpSuffix;
     while (struct dirent* entry = readdir(dir))
     {
         std::string_view name(entry->d_name);
@@ -398,7 +407,7 @@ class HttpBody::reader
               *contentLength > httpBodyFileSpillThreshold)))
         {
             std::string tempPath = std::string(httpBodyTempDir) + "/." +
-                                   bmcweb::getRandomUUID() + ".upload.tmp";
+                                   bmcweb::getRandomUUID() + std::string(uploadTmpSuffix);
             value.open(tempPath.c_str(), boost::beast::file_mode::write, ec);
             if (ec)
             {

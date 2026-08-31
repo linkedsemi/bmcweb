@@ -188,11 +188,6 @@ class Connection :
                                         const boost::system::error_code& ec) {
                                         if (ec)
                                         {
-#ifdef __ZEPHYR__
-                                            BMCWEB_LOG_ERROR(
-                                                "TLS handshake failed: {}",
-                                                ec.message());
-#endif /* __ZEPHYR__ */
                                             return;
                                         }
                                         afterSslHandshake();

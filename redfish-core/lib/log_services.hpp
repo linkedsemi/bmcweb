@@ -174,7 +174,11 @@ inline bool getUniqueEntryID(const std::string& logEntry, std::string& entryID,
 inline bool
     getRedfishLogFiles(std::vector<std::filesystem::path>& redfishLogFiles)
 {
+#ifdef __ZEPHYR__
+    static const std::filesystem::path redfishLogDir = "/SD2:/var/log";
+#else
     static const std::filesystem::path redfishLogDir = "/var/log";
+#endif /* __ZEPHYR__ */
     static const std::string redfishLogFilename = "redfish";
 
     // Loop through the directory looking for redfish log files
