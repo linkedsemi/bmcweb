@@ -16,6 +16,9 @@ limitations under the License.
 #pragma once
 
 #include "app.hpp"
+#ifdef __ZEPHYR__
+#include "data_dirs.hpp"
+#endif /* __ZEPHYR__ */
 #include "dbus_utility.hpp"
 #include "error_messages.hpp"
 #include "generated/enums/log_entry.hpp"
@@ -175,7 +178,7 @@ inline bool
     getRedfishLogFiles(std::vector<std::filesystem::path>& redfishLogFiles)
 {
 #ifdef __ZEPHYR__
-    static const std::filesystem::path redfishLogDir = "/SD2:/var/log";
+    static const std::filesystem::path redfishLogDir(redfish::redfishLogDir);
 #else
     static const std::filesystem::path redfishLogDir = "/var/log";
 #endif /* __ZEPHYR__ */
@@ -1942,7 +1945,9 @@ inline void requestRoutesDBusEventLogEntry(App& app)
             });
 }
 
+#ifndef __ZEPHYR__
 constexpr const char* hostLoggerFolderPath = "/var/log/console";
+#endif /* __ZEPHYR__ */
 
 inline bool
     getHostLoggerFiles(const std::string& hostLoggerFilePath,

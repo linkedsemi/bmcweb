@@ -1,5 +1,9 @@
 #pragma once
 
+#ifdef __ZEPHYR__
+#include "data_dirs.hpp"
+#endif /* __ZEPHYR__ */
+
 #ifndef __ZEPHYR__
 #include <sys/inotify.h>
 #endif /* __ZEPHYR__ */
@@ -11,7 +15,9 @@
 namespace redfish
 {
 
+#ifndef __ZEPHYR__
 constexpr const char* redfishEventLogFile = "/var/log/redfish";
+#endif /* __ZEPHYR__ */
 
 class FilesystemLogWatcher
 {

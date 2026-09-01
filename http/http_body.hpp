@@ -1,5 +1,8 @@
 #pragma once
 
+#ifdef __ZEPHYR__
+#include "data_dirs.hpp"
+#endif /* __ZEPHYR__ */
 #include "duplicatable_file_handle.hpp"
 #include "logging.hpp"
 #ifdef __ZEPHYR__
@@ -47,36 +50,7 @@ constexpr size_t httpBodyMaxInMemory = 1024UL * 1024UL;
 // slow and cause extra wear).
 constexpr size_t httpBodyWriteBatchSize = 64UL * 1024UL;
 
-// Temporary upload files live here until the route commits them by renaming.
-// Configurable: change this constant to move the spill location.
-constexpr std::string_view httpBodyTempDir = "/SD2:/var/lib/bmcweb";
-
-// Completed firmware images are stored here after an update.  Configurable:
-// change this constant to move the final image location.
-constexpr std::string_view httpBodyImageDir = "/SD2:/images";
-
 constexpr std::string_view uploadTmpSuffix = ".upload.tmp";
-
-// Ensure both the spill dir and the final image dir exist.  Called once at
-// startup before the server accepts requests.
-inline bool ensureUploadDirs()
-{
-    std::error_code ec;
-    std::filesystem::create_directories(std::string(httpBodyTempDir), ec);
-    if (ec)
-    {
-        return false;
-    }
-    std::filesystem::create_directories(std::string(httpBodyImageDir), ec);
-    if (ec)
-    {
-        return false;
-    }
-    // EventLog handlers scan this directory for redfish log files
-    // (log_services.hpp); a fresh SD card has no /var/log yet.
-    std::filesystem::create_directories("/SD2:/var/log", ec);
-    return !ec;
-}
 
 // Remove leftover spill files from previous runs.  A crash or power loss can
 // leave .upload.tmp files behind and FATFS has no automatic cleanup.

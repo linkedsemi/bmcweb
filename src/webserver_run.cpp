@@ -20,6 +20,9 @@
 #include "user_monitor.hpp"
 #include "vm_websocket.hpp"
 #include "webassets.hpp"
+#ifdef __ZEPHYR__
+#include "data_dirs.hpp"
+#endif /* __ZEPHYR__ */
 
 #include <boost/asio/io_context.hpp>
 #include <sdbusplus/asio/connection.hpp>
@@ -74,9 +77,9 @@ static void setLogLevel(const std::string& logLevel)
 int runWebserver()
 {
 #ifdef __ZEPHYR__
-    if (!bmcweb::ensureUploadDirs())
+    if (!bmcweb::ensureDirs())
     {
-        BMCWEB_LOG_CRITICAL("Failed to create upload directories");
+        BMCWEB_LOG_CRITICAL("Failed to create data directories");
     }
     bmcweb::cleanupStaleUploads();
 
