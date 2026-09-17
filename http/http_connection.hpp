@@ -540,15 +540,14 @@ class Connection :
                 ip, res, method, parser->get().base(), mtlsSession);
         }
 
-        std::string_view expect =
-            parser->get()[boost::beast::http::field::expect];
-        if (bmcweb::asciiIEquals(expect, "100-continue"))
-        {
-            res.result(boost::beast::http::status::continue_);
-            doWrite();
-            return;
-        }
-
+        /* The content-length / body-limit guards must run BEFORE the interim
+         * 100-continue reply: they used to sit behind the early return in that
+         * branch, so an over-limit body was acknowledged and then read with
+         * beast's 1MiB parser default as the only limit ("body limit exceeded"
+         * plus a bogus "no content-length available?" CRITICAL). A body without
+         * Content-Length (chunked) hit that same 1MiB default for every
+         * request. Answering 401/413 before the 100-continue is also the
+         * correct HTTP behaviour: the client then never sends the body. */
         if (!handleContentLengthError())
         {
             return;
@@ -559,6 +558,15 @@ class Connection :
         if (parser->is_done())
         {
             handle();
+            return;
+        }
+
+        const std::string_view expect =
+            parser->get()[boost::beast::http::field::expect];
+        if (bmcweb::asciiIEquals(expect, "100-continue"))
+        {
+            res.result(boost::beast::http::status::continue_);
+            doWrite();
             return;
         }
 
@@ -595,11 +603,21 @@ class Connection :
             {
                 if (handleContentLengthError())
                 {
-                    BMCWEB_LOG_CRITICAL("Body length limit reached, "
-                                        "but no content-length "
-                                        "available?  Should never happen");
+                    /* A request without Content-Length (chunked) hit the limit
+                     * set in afterReadHeaders() -- but note the parser counts
+                     * what it decoded, so the diag counter says how much of the
+                     * body actually reached HttpBody::put(): ~0 bytes means the
+                     * parser rejected the stream before handing anything over,
+                     * a large number means the client really kept sending. */
+                    BMCWEB_LOG_ERROR("{} Chunked body exceeded the {} byte "
+                                     "limit, refusing ({} bytes reached the "
+                                     "handler, {} chunks)",
+                                     logPtr(this), getContentLengthLimit(),
+                                     bmcweb::uploadDiagBytes -
+                                         bmcweb::uploadDiagLastBytes,
+                                     bmcweb::uploadDiagChunks);
                     res.result(
-                        boost::beast::http::status::internal_server_error);
+                        boost::beast::http::status::payload_too_large);
                     keepAlive = false;
                     doWrite();
                 }

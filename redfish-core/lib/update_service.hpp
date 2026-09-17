@@ -691,6 +691,22 @@ inline void uploadImageFile(crow::Response& res,
 {
     if (!body.tempFile().empty())
     {
+        /* A body that arrived empty (e.g. a client that could not read the file
+         * it was told to upload, or one that gave up before sending anything)
+         * has already been spilled and closed by the time we get here. It used
+         * to be renamed in as a 0-byte "image" and reported as a successful
+         * update; Watch::poll() then (correctly) refuses to process it and warns
+         * about it every 30s forever. Reject it here instead. */
+        std::error_code fec;
+        const auto sz = std::filesystem::file_size(body.tempFile(), fec);
+        if (fec || (sz == 0))
+        {
+            BMCWEB_LOG_WARNING("Uploaded image {} is empty, rejecting",
+                               body.tempFile());
+            messages::propertyMissing(res, "UpdateFile");
+            return;
+        }
+
         std::filesystem::path filepath(std::string(bmcweb::httpBodyImageDir) +
                                        "/" + bmcweb::getRandomUUID());
         if (std::rename(body.tempFile().c_str(), filepath.string().c_str()) !=

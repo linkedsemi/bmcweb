@@ -193,13 +193,20 @@ struct Response
         }
         response.content_length(*pSize);
 
-        if (is1XXReturn || result() == status::no_content ||
-            result() == status::not_modified)
+        /* Only a real body is a problem here. An interim 1XX reply (the answer
+         * to Expect: 100-continue) has a zero-length payload, and payloadSize()
+         * returns an *engaged* optional holding 0 -- so the !pSize return above
+         * does not catch it and every Expect upload used to log a CRITICAL for
+         * a body that does not exist. */
+        if ((*pSize != 0) && (is1XXReturn || result() == status::no_content ||
+                              result() == status::not_modified))
         {
             BMCWEB_LOG_CRITICAL("{} Response content provided but code was "
                                 "no-content or not_modified, which aren't "
-                                "allowed to have a body",
-                                logPtr(this));
+                                "allowed to have a body (status={} size={})",
+                                logPtr(this),
+                                static_cast<unsigned>(result()),
+                                static_cast<unsigned>(*pSize));
             response.content_length(0);
             return;
         }

@@ -27,7 +27,9 @@
 #include <cstdio>
 #include <filesystem>
 #include <string>
+#include <zephyr/kernel.h>
 #include <zephyr/posix/dirent.h>
+#include <zephyr/sys/printk.h>
 #endif /* __ZEPHYR__ */
 #include <optional>
 #include <string_view>
@@ -51,6 +53,70 @@ constexpr size_t httpBodyMaxInMemory = 1024UL * 1024UL;
 constexpr size_t httpBodyWriteBatchSize = 64UL * 1024UL;
 
 constexpr std::string_view uploadTmpSuffix = ".upload.tmp";
+
+// Diagnostics for the Zephyr upload path. Every uploadDiagInterval bytes of
+// received body we print how long that took and how large the chunks handed to
+// us by the socket were. A small average chunk (a few hundred bytes to ~1.5KiB)
+// means the network stack is feeding us packet by packet, where the RX pool and
+// MAC descriptor settings dominate; a large average with a low rate instead
+// means the limit is outside the BMC (the uploader or the link).
+constexpr std::uint64_t uploadDiagInterval = 2UL * 1024UL * 1024UL;
+
+inline std::uint64_t uploadDiagBytes = 0;
+inline std::uint64_t uploadDiagChunks = 0;
+inline std::uint64_t uploadDiagLastBytes = 0;
+inline std::int64_t uploadDiagLastTime = 0;
+
+inline void uploadDiagAccount(std::size_t chunkBytes)
+{
+    if (uploadDiagBytes == 0)
+    {
+        uploadDiagLastTime = k_uptime_get();
+    }
+    uploadDiagBytes += chunkBytes;
+    uploadDiagChunks++;
+    if (uploadDiagBytes < (uploadDiagLastBytes + uploadDiagInterval))
+    {
+        return;
+    }
+    const std::int64_t now = k_uptime_get();
+    const std::uint64_t delta = uploadDiagBytes - uploadDiagLastBytes;
+    const std::int64_t ms = now - uploadDiagLastTime;
+    const unsigned kibPerSec =
+        (ms > 0) ? static_cast<unsigned>((delta >> 10) * 1000 / ms) : 0;
+    printk("upload: %u MiB total, last %u KiB in %u ms (%u KiB/s), "
+           "%u chunks, avg chunk %u B\n",
+           static_cast<unsigned>(uploadDiagBytes >> 20),
+           static_cast<unsigned>(delta >> 10), static_cast<unsigned>(ms),
+           kibPerSec, static_cast<unsigned>(uploadDiagChunks),
+           static_cast<unsigned>(uploadDiagBytes /
+                                 (uploadDiagChunks == 0 ? 1
+                                                        : uploadDiagChunks)));
+    uploadDiagLastBytes = uploadDiagBytes;
+    uploadDiagLastTime = now;
+}
+
+#define EVENTLOG_PATH CONFIG_FS_ROOT_SD2 "/var/log"
+// Ensure both the spill dir and the final image dir exist.  Called once at
+// startup before the server accepts requests.
+inline bool ensureUploadDirs()
+{
+    std::error_code ec;
+    std::filesystem::create_directories(std::string(httpBodyTempDir), ec);
+    if (ec)
+    {
+        return false;
+    }
+    std::filesystem::create_directories(std::string(httpBodyImageDir), ec);
+    if (ec)
+    {
+        return false;
+    }
+    // EventLog handlers scan this directory for redfish log files
+    // (log_services.hpp); a fresh SD card has no /var/log yet.
+    std::filesystem::create_directories(std::string(EVENTLOG_PATH), ec);
+    return !ec;
+}
 
 // Remove leftover spill files from previous runs.  A crash or power loss can
 // leave .upload.tmp files behind and FATFS has no automatic cleanup.
@@ -435,6 +501,7 @@ class HttpBody::reader
         size_t extra = boost::beast::buffer_bytes(buffers);
         for (const auto b : boost::beast::buffers_range_ref(buffers))
         {
+            uploadDiagAccount(b.size());
             if (!value.tempFile().empty())
             {
                 writeBuf.append(static_cast<const char*>(b.data()), b.size());
