@@ -96,7 +96,7 @@ inline void uploadDiagAccount(std::size_t chunkBytes)
     uploadDiagLastTime = now;
 }
 
-#define EVENTLOG_PATH CONFIG_FS_ROOT_SD2 "/var/log"
+#define EVENTLOG_PATH CONFIG_FS_ROOT_MNT "/var/log"
 // Ensure both the spill dir and the final image dir exist.  Called once at
 // startup before the server accepts requests.
 inline bool ensureUploadDirs()

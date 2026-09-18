@@ -11,11 +11,11 @@ namespace redfish
 // Redfish event log directory on Zephyr (the SD card); /var/log does not
 // exist there and is created at startup.  Keep it in one place so the
 // scan and the directory creation stay in sync.
-constexpr std::string_view redfishLogDir = CONFIG_FS_ROOT_SD2 "/var/log";
+constexpr std::string_view redfishLogDir = CONFIG_FS_ROOT_MNT "/var/log";
 
-constexpr const char* redfishEventLogFile = CONFIG_FS_ROOT_SD2 "/var/log/redfish";
+constexpr const char* redfishEventLogFile = CONFIG_FS_ROOT_MNT "/var/log/redfish";
 
-constexpr const char* hostLoggerFolderPath = CONFIG_FS_ROOT_SD2 "/var/log/console";
+constexpr const char* hostLoggerFolderPath = CONFIG_FS_ROOT_MNT "/var/log/console";
 
 } // namespace redfish
 
@@ -25,11 +25,11 @@ namespace bmcweb
 
 // Temporary upload files live here until the route commits them by renaming.
 // Configurable: change this constant to move the spill location.
-constexpr std::string_view httpBodyTempDir = CONFIG_FS_ROOT_SD2 "/var/lib/bmcweb";
+constexpr std::string_view httpBodyTempDir = CONFIG_FS_ROOT_MNT "/var/lib/bmcweb";
 
 // Completed firmware images are stored here after an update.  Configurable:
 // change this constant to move the final image location.
-constexpr std::string_view httpBodyImageDir = CONFIG_FS_ROOT_SD2 "/images";
+constexpr std::string_view httpBodyImageDir = CONFIG_FS_ROOT_MNT "/images";
 
 // Create every directory the server needs at startup: the upload spill /
 // image dirs (bmcweb) and the Redfish event log dir (Zephyr: SD card, which
