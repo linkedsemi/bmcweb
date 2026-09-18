@@ -40,7 +40,7 @@ constexpr const size_t BMCWEB_HTTP_BODY_LIMIT = 30;
 constexpr const size_t BMCWEB_HTTPS_PORT = 443;
 
 constexpr const bool BMCWEB_REDFISH_AGGREGATION = false;
-constexpr const bool BMCWEB_REDFISH_DBUS_LOG = false;
+constexpr const bool BMCWEB_REDFISH_DBUS_LOG = true;
 constexpr const bool BMCWEB_EXPERIMENTAL_REDFISH_DBUS_LOG_SUBSCRIPTION = false;
 
 constexpr const bool BMCWEB_VM_WEBSOCKET = false;
