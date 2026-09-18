@@ -441,10 +441,18 @@ class HttpBody::reader
             hdr[boost::beast::http::field::transfer_encoding];
         bool isChunked = bmcweb::asciiIEquals(transferEncoding, "chunked");
 
-        if (isUploadType &&
-            (isChunked ||
-             (contentLength &&
-              *contentLength > httpBodyFileSpillThreshold)))
+        /* Spill by size, not by the declared content type: a client that sends
+         * --data-binary without an explicit -H "Content-Type: ..." gets
+         * application/x-www-form-urlencoded, and such a 4.5MiB firmware image
+         * was then held in RAM and rejected by HttpBody::init() with "body
+         * limit exceeded" before a single byte reached the handler (the redfish
+         * update route only needs the body, never the type). The content type
+         * still decides for chunked bodies: there is no length to compare, and
+         * this gate keeps arbitrary small chunked requests out of the spill
+         * path. */
+        if ((isChunked && isUploadType) ||
+            (contentLength &&
+             *contentLength > httpBodyFileSpillThreshold))
         {
             std::string tempPath = std::string(httpBodyTempDir) + "/." +
                                    bmcweb::getRandomUUID() + std::string(uploadTmpSuffix);

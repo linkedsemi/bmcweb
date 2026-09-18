@@ -1259,14 +1259,21 @@ inline void
 
     BMCWEB_LOG_DEBUG("doPost: contentType={}", contentType);
 
-    // Make sure that content type is application/octet-stream or
-    // multipart/form-data
-    if (bmcweb::asciiIEquals(contentType, "application/octet-stream"))
+    /* Multipart first: only a body that announces multipart/form-data is parsed
+     * as such. Everything else -- application/octet-stream, a missing
+     * Content-Type, or anything else a client happens to send -- is treated as
+     * a raw image. A missing header is not an error: curl's --data-binary sends
+     * application/x-www-form-urlencoded unless the caller adds
+     * -H "Content-Type: ...", and such an upload used to be dropped with a bare
+     * 400 that looked like "the transfer worked, then nothing happened".
+     *
+     * The abuse controls are elsewhere and unaffected: the route requires
+     * authentication, the body is size-gated (httpReqBodyLimit for a logged-in
+     * caller, loggedOutPostBodyLimit otherwise), and a body that is not a valid
+     * package is rejected by the image manager's manifest/tar checks. */
+    if (contentType.starts_with("multipart/form-data"))
     {
-        doHTTPUpdate(asyncResp, req);
-    }
-    else if (contentType.starts_with("multipart/form-data"))
-    {
+
 #ifdef __ZEPHYR__
         const bmcweb::HttpBody::value_type& body = req.bodyValue();
         if (!body.tempFile().empty())
@@ -1305,8 +1312,14 @@ inline void
     }
     else
     {
-        BMCWEB_LOG_DEBUG("Bad content type specified:{}", contentType);
-        asyncResp->res.result(boost::beast::http::status::bad_request);
+        if (!contentType.empty() &&
+            !bmcweb::asciiIEquals(contentType, "application/octet-stream"))
+        {
+            BMCWEB_LOG_WARNING("UpdateService POST with content type '{}': "
+                               "treating the body as a raw firmware image",
+                               contentType);
+        }
+        doHTTPUpdate(asyncResp, req);
     }
 }
 

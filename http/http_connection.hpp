@@ -563,6 +563,7 @@ class Connection :
 
         const std::string_view expect =
             parser->get()[boost::beast::http::field::expect];
+
         if (bmcweb::asciiIEquals(expect, "100-continue"))
         {
             res.result(boost::beast::http::status::continue_);
@@ -609,13 +610,19 @@ class Connection :
                      * body actually reached HttpBody::put(): ~0 bytes means the
                      * parser rejected the stream before handing anything over,
                      * a large number means the client really kept sending. */
-                    BMCWEB_LOG_ERROR("{} Chunked body exceeded the {} byte "
-                                     "limit, refusing ({} bytes reached the "
-                                     "handler, {} chunks)",
-                                     logPtr(this), getContentLengthLimit(),
-                                     bmcweb::uploadDiagBytes -
-                                         bmcweb::uploadDiagLastBytes,
-                                     bmcweb::uploadDiagChunks);
+                    const auto diagCl = parser->content_length();
+                    BMCWEB_LOG_ERROR(
+                        "{} Request {} {} exceeded the {} byte limit after {} "
+                        "bytes of this read (cl={} te='{}' chunked={}; {} bytes "
+                        "and {} chunks reached the handler in total)",
+                        logPtr(this), parser->get().method_string(),
+                        parser->get().target(), getContentLengthLimit(),
+                        bytesTransferred,
+                        diagCl ? std::to_string(*diagCl) : std::string{"none"},
+                        parser->get()[boost::beast::http::field::transfer_encoding],
+                        parser->get().chunked() ? "yes" : "no",
+                        bmcweb::uploadDiagBytes - bmcweb::uploadDiagLastBytes,
+                        bmcweb::uploadDiagChunks);
                     res.result(
                         boost::beast::http::status::payload_too_large);
                     keepAlive = false;
